@@ -1,0 +1,88 @@
+# -----------------------
+# Environments & Secrets
+# -----------------------
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.secret
+
+# -----------------------
+# Python & FastAPI
+# -----------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# -----------------------
+# Node & Frontend
+# -----------------------
+node_modules/
+.npm/
+.yarn/
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+frontend/dist/
+frontend/build/
+.next/
+
+# -----------------------
+# Logs & Databases
+# -----------------------
+*.log
+*.sqlite3
+*.db
+redis_data/
+postgres_data/
+qdrant_data/
+minio_data/
+
+# -----------------------
+# IDEs & System Files
+# -----------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# -----------------------
+# Testing & Coverage
+# -----------------------
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/

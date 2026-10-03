@@ -86,3 +86,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+
+# -----------------------
+# Documentation
+# -----------------------
+VIBE_CODING_WALKTHROUGH.md

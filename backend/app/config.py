@@ -5,7 +5,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str
     QDRANT_URL: str
-    MINIO_URL: str
+    S3_ENDPOINT_URL: str
+    AWS_ACCESS_KEY_ID: str = "test"
+    AWS_SECRET_ACCESS_KEY: str = "test"
+    AWS_DEFAULT_REGION: str = "us-east-1"
     
     # Secrets
     GOOGLE_API_KEY: str

@@ -4,6 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.db.database import engine
 from app.config import settings
+from app.api.v1.auth import router as auth_router
+from app.api.v1.documents import router as documents_router
+from app.api.v1.chat import router as chat_router
+from app.api.v1.eval import router as eval_router
 import redis.asyncio as redis
 from qdrant_client import AsyncQdrantClient
 
@@ -34,6 +38,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+api_v1_router.include_router(auth_router, tags=["auth"])
+api_v1_router.include_router(documents_router, tags=["documents"])
+api_v1_router.include_router(chat_router, tags=["chat"])
+api_v1_router.include_router(eval_router, tags=["eval"])
 app.include_router(api_v1_router)
 
 @app.get("/health", tags=["Health"])

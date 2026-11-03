@@ -1,0 +1,313 @@
+"use client";
+
+/**
+ * /chat/[sessionId] — The primary application view.
+ *
+ * Layout:
+ *   ┌─────────────────────────────────────────────────────────┐
+ *   │  Sidebar (w-72)         │  ChatWindow (flex-1)          │
+ *   │  ┌──────────────────┐   │                               │
+ *   │  │ Logo + tagline   │   │  Message history              │
+ *   │  │──────────────────│   │  Streaming bubble             │
+ *   │  │ FileUploader     │   │  Input area                   │
+ *   │  │──────────────────│   │                               │
+ *   │  │ Session list     │   │                               │
+ *   └─────────────────────────────────────────────────────────┘
+ *
+ * On mount:
+ *   1. Sets the current session in Zustand
+ *   2. Fetches message history from the backend
+ *   3. Loads existing documents (if any) — future: from API
+ */
+
+import React, { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useChatStore } from '@/store/useChatStore';
+import { getHistory, getSessions, deleteSession } from '@/lib/api';
+import { FileUploader } from '@/components/FileUploader';
+import { ChatWindow } from '@/components/ChatWindow';
+import {
+  Sparkles,
+  LayoutGrid,
+  MessageSquare,
+  Trash2,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { createSession } from '@/lib/api';
+
+// ─── SESSION LIST ─────────────────────────────────────────────────────────────
+
+interface SessionMeta {
+  id: string;
+  title: string | null;
+  created_at: string;
+}
+
+interface SessionListProps {
+  sessions: SessionMeta[];
+  currentSessionId: string;
+  onDelete: (id: string) => void;
+}
+
+function SessionList({ sessions, currentSessionId, onDelete }: SessionListProps) {
+  const router = useRouter();
+
+  const handleNew = async () => {
+    try {
+      const res = await createSession([]);
+      router.push(`/chat/${res.session_id}`);
+    } catch {
+      router.push(`/chat/fallback-session-${Date.now()}`);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between px-1 mb-1">
+        <span className="text-[10px] font-semibold text-neutral-500 uppercase tracking-widest">
+          Sessions
+        </span>
+        <button
+          onClick={handleNew}
+          id="new-session-btn"
+          className="p-1 rounded-md text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors"
+          aria-label="New session"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {sessions.length === 0 && (
+        <p className="text-xs text-neutral-600 text-center py-3">No previous sessions</p>
+      )}
+
+      {sessions.map((s) => {
+        const isActive = s.id === currentSessionId;
+        const label = s.title ?? `Session ${s.id.slice(0, 8)}`;
+        const date = new Date(s.created_at).toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+        });
+
+        return (
+          <div
+            key={s.id}
+            className={cn(
+              'group flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all cursor-pointer',
+              isActive
+                ? 'bg-blue-500/15 border border-blue-500/25'
+                : 'hover:bg-neutral-800/60 border border-transparent',
+            )}
+            onClick={() => router.push(`/chat/${s.id}`)}
+            role="button"
+            tabIndex={0}
+            aria-label={`Switch to ${label}`}
+          >
+            <MessageSquare
+              className={cn(
+                'w-3.5 h-3.5 flex-shrink-0',
+                isActive ? 'text-blue-400' : 'text-neutral-500',
+              )}
+            />
+            <div className="flex-1 min-w-0">
+              <p className={cn('text-xs truncate', isActive ? 'text-blue-300' : 'text-neutral-300')}>
+                {label}
+              </p>
+              <p className="text-[10px] text-neutral-600">{date}</p>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(s.id); }}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-600 hover:text-red-400 transition-all"
+              aria-label={`Delete ${label}`}
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── SIDEBAR ──────────────────────────────────────────────────────────────────
+
+interface SidebarProps {
+  collapsed: boolean;
+  onToggle: () => void;
+  sessionId: string;
+}
+
+function Sidebar({ collapsed, onToggle, sessionId }: SidebarProps) {
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const router = useRouter();
+
+  useEffect(() => {
+    getSessions()
+      .then(setSessions)
+      .catch(() => setSessions([]))
+      .finally(() => setLoadingSessions(false));
+  }, [sessionId]);
+
+  const handleDeleteSession = async (id: string) => {
+    try {
+      await deleteSession(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      // If we deleted the current session, redirect home
+      if (id === sessionId) router.push('/');
+    } catch { /* silently ignore */ }
+  };
+
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center py-4 gap-4 w-14 glass rounded-2xl border-neutral-800/60 shadow-xl">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg">
+          <Sparkles className="w-4 h-4 text-white" />
+        </div>
+        <button
+          onClick={onToggle}
+          className="p-2 rounded-xl text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors"
+          aria-label="Expand sidebar"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+        <LayoutGrid className="w-4 h-4 text-neutral-600 mt-2" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-72 flex-shrink-0 flex flex-col h-full glass rounded-2xl border-neutral-800/60 shadow-2xl overflow-hidden">
+      {/* Brand header */}
+      <div className="px-5 py-5 border-b border-neutral-800/60">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-lg">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-gradient-brand">Quantiva</h1>
+              <p className="text-[10px] text-neutral-500 -mt-0.5">Enterprise AI Agent</p>
+            </div>
+          </div>
+          <button
+            onClick={onToggle}
+            className="p-1.5 rounded-lg text-neutral-500 hover:text-neutral-300 hover:bg-neutral-700/50 transition-colors"
+            aria-label="Collapse sidebar"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-6">
+        {/* File Uploader */}
+        <div>
+          <FileUploader />
+        </div>
+
+        {/* Session list */}
+        <div>
+          {loadingSessions ? (
+            <div className="flex items-center gap-2 text-xs text-neutral-600 px-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Loading sessions…
+            </div>
+          ) : (
+            <SessionList
+              sessions={sessions}
+              currentSessionId={sessionId}
+              onDelete={handleDeleteSession}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-3 border-t border-neutral-800/60">
+        <p className="text-[10px] text-neutral-600 text-center">
+          Powered by Gemini 1.5 Flash · Qdrant · FastAPI
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── PAGE ─────────────────────────────────────────────────────────────────────
+
+export default function ChatPage() {
+  const params = useParams();
+  const sessionId = params.sessionId as string;
+
+  const { setSession, setMessages } = useChatStore();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Set session in Zustand and load history from Redis
+  useEffect(() => {
+    if (!sessionId) return;
+    setSession(sessionId);
+
+    const isFallback = sessionId.startsWith('fallback-');
+
+    if (isFallback) {
+      setMessages([]);
+      setLoading(false);
+      return;
+    }
+
+    getHistory(sessionId)
+      .then((history) => {
+        const msgs = history.map((m) => ({
+          role: m.role,
+          content: m.content,
+          citations: m.citations,
+          confidence: m.confidence,
+          chart_url: m.chart_url,
+          timestamp: Date.now(),
+        }));
+        setMessages(msgs);
+      })
+      .catch(() => setMessages([]))
+      .finally(() => setLoading(false));
+  }, [sessionId, setSession, setMessages]);
+
+  return (
+    <div className="flex h-screen bg-[#0a0a0a] p-3 gap-3 overflow-hidden">
+      {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+      <aside
+        className={cn(
+          'hidden md:flex flex-col transition-all duration-300 ease-in-out',
+          sidebarCollapsed ? 'w-14' : 'w-72',
+        )}
+        aria-label="Sidebar navigation"
+      >
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed((v) => !v)}
+          sessionId={sessionId}
+        />
+      </aside>
+
+      {/* ── Main chat area ───────────────────────────────────────────────── */}
+      <main className="flex-1 min-w-0 h-full" role="main" aria-label="Chat interface">
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="flex items-center gap-3 text-neutral-500">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-sm">Loading conversation…</span>
+            </div>
+          </div>
+        ) : (
+          <ChatWindow />
+        )}
+      </main>
+    </div>
+  );
+}

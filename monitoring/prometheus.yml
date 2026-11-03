@@ -1,0 +1,22 @@
+# monitoring/prometheus.yml
+# Prometheus scrape configuration for Quantiva
+
+global:
+  scrape_interval: 15s       # How often to scrape targets
+  evaluation_interval: 15s   # How often to evaluate alerting rules
+  external_labels:
+    environment: development
+    project: quantiva
+
+scrape_configs:
+  # Quantiva FastAPI backend — exposes /metrics via prometheus_client
+  - job_name: quantiva-backend
+    static_configs:
+      - targets: ["backend:8000"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -105,31 +105,36 @@ async def delete_document(
 async def get_document_status(
     doc_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
 ):
     """Server-Sent Events (SSE) endpoint to stream document processing status."""
-    
+
     async def event_generator():
+        from app.db.database import AsyncSessionLocal
         while True:
-            # Re-fetch document inside the loop with a fresh query
-            result = await db.execute(select(Document).where(Document.id == doc_id, Document.user_id == current_user.id))
-            doc = result.scalar_one_or_none()
-            
+            # Use a fresh session each iteration to avoid "another operation in progress" error
+            async with AsyncSessionLocal() as fresh_db:
+                result = await fresh_db.execute(
+                    select(Document).where(
+                        Document.id == doc_id,
+                        Document.user_id == current_user.id
+                    )
+                )
+                doc = result.scalar_one_or_none()
+
             if not doc:
                 yield {"data": '{"error": "Document not found"}'}
                 break
-                
-            # Send current status
-            data = DocumentStatusResponse(id=doc.id, status=doc.status, chunk_count=doc.chunk_count).model_dump_json()
+
+            data = DocumentStatusResponse(
+                id=doc.id, status=doc.status, chunk_count=doc.chunk_count
+            ).model_dump_json()
             yield {"data": data}
-            
+
             if doc.status in ["ready", "failed"]:
                 break
-                
-            await asyncio.sleep(1) # Poll every 1 second
-            # Expire session so we don't read cached data in the next loop
-            db.expire(doc)
-            
+
+            await asyncio.sleep(1)  # Poll every 1 second
+
     return EventSourceResponse(event_generator())
 
 @router.get("/{doc_id}/chunks")

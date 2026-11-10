@@ -1,106 +1,89 @@
-import json
-import time
+"""Tenant-, corpus-, model-, and conversation-scoped optional answer cache."""
+import asyncio
 import hashlib
-import numpy as np
-from typing import List, Optional
+import json
+import logging
+import math
+
 import redis.asyncio as redis
 
 from app.config import settings
 from app.schemas.agent import AgentAnswer
 from app.services.retrieval.embedding_service import embedding_service
 
+logger = logging.getLogger(__name__)
+
+
 class SemanticCache:
+    TTL_SECONDS = 3600
+    SIMILARITY_THRESHOLD = .92
+    PREFIX = "semantic_cache:v2:"
+
     def __init__(self):
-        self.client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
-        self.SIMILARITY_THRESHOLD = 0.92
-        self.TTL_SECONDS = 3600  # 1 hour
-        self.PREFIX = "semantic_cache:"
+        self.client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2, socket_timeout=2)
 
-    def _generate_key(self, doc_ids: List[str]) -> str:
-        """
-        Creates a deterministic hash from the document IDs.
-        This ensures queries are only matched against cache entries
-        that were generated for the EXACT same set of documents.
-        """
+    def _generate_key(self, doc_ids, *, user_id, corpus_version="", context_fingerprint=""):
+        if not user_id:
+            raise ValueError("Tenant user_id is required")
+        identity = json.dumps([sorted(doc_ids), corpus_version, context_fingerprint, settings.GEMINI_CHAT_MODEL, settings.EMBEDDING_MODEL, settings.EMBEDDING_DIMENSIONS])
+        return f"{self.PREFIX}{user_id}:{hashlib.sha256(identity.encode()).hexdigest()}"
+
+    def _doc_index(self, doc_id, user_id):
+        return f"{self.PREFIX}doc:{user_id}:{doc_id}"
+
+    def _cosine_similarity(self, a, b):
+        if len(a) != len(b):
+            return -1.
+        denom = math.sqrt(sum(x*x for x in a) * sum(x*x for x in b))
+        return sum(x*y for x, y in zip(a, b)) / denom if denom else -1.
+
+    async def get(self, query, doc_ids, *, user_id, corpus_version="", context_fingerprint=""):
         if not doc_ids:
-            return f"{self.PREFIX}global"
-        sorted_docs = sorted(doc_ids)
-        docs_string = ",".join(sorted_docs)
-        doc_hash = hashlib.md5(docs_string.encode()).hexdigest()
-        return f"{self.PREFIX}{doc_hash}"
-
-    def _cosine_similarity(self, v1: List[float], v2: List[float]) -> float:
-        """Calculate cosine similarity between two vectors."""
-        a = np.array(v1)
-        b = np.array(v2)
-        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
-
-    async def get(self, query: str, doc_ids: List[str]) -> Optional[AgentAnswer]:
-        """
-        Finds the semantically closest cached answer for the exact same doc_ids.
-        """
-        cache_key = self._generate_key(doc_ids)
-        
-        # 1. Fetch all cached entries for this document combination
-        cached_entries_raw = await self.client.hgetall(cache_key)
-        if not cached_entries_raw:
             return None
-            
-        # 2. Embed the incoming query
-        query_embedding = embedding_service.embed_text(query)
-        
-        best_match = None
-        best_score = -1.0
-        
-        # 3. Iterate through cached queries and compute similarity
-        for cached_query, cached_data_str in cached_entries_raw.items():
-            cached_data = json.loads(cached_data_str)
-            cached_embedding = cached_data["embedding"]
-            
-            similarity = self._cosine_similarity(query_embedding, cached_embedding)
-            
-            if similarity > best_score:
-                best_score = similarity
-                best_match = cached_data
-                
-        # 4. Return if it meets our strict threshold
-        if best_match and best_score >= self.SIMILARITY_THRESHOLD:
-            # We found a match! Return the cached AgentAnswer
-            answer_data = best_match["answer"]
-            answer = AgentAnswer(**answer_data)
-            answer.cache_hit = True
-            return answer
-            
+        key = self._generate_key(doc_ids, user_id=user_id, corpus_version=corpus_version, context_fingerprint=context_fingerprint)
+        try:
+            entries = await self.client.hgetall(key)
+            if not entries:
+                return None
+            query_vector = await asyncio.to_thread(embedding_service.embed_text, query, task_type="SEMANTIC_SIMILARITY")
+            for value in entries.values():
+                try:
+                    data = json.loads(value)
+                    if self._cosine_similarity(query_vector, data["embedding"]) >= self.SIMILARITY_THRESHOLD:
+                        answer = AgentAnswer.model_validate(data["answer"])
+                        answer.cache_hit = True
+                        answer.tokens_used = answer.input_tokens = answer.output_tokens = 0
+                        answer.cost_usd = 0.0
+                        return answer
+                except (ValueError, KeyError, TypeError):
+                    continue
+        except Exception:
+            # Cache availability is optional. A miss still runs the real model.
+            logger.warning("Semantic cache read unavailable", exc_info=False)
         return None
 
-    async def set(self, query: str, doc_ids: List[str], answer: AgentAnswer):
-        """
-        Embeds the query and stores the answer in the cache hash.
-        """
-        cache_key = self._generate_key(doc_ids)
-        query_embedding = embedding_service.embed_text(query)
-        
-        # Ensure cache_hit is False when saving
-        answer.cache_hit = False
-        
-        cache_payload = {
-            "query": query,
-            "embedding": query_embedding,
-            "answer": answer.model_dump(),
-            "timestamp": time.time()
-        }
-        
-        # Store in Redis Hash Map
-        await self.client.hset(cache_key, query, json.dumps(cache_payload))
-        # Reset the TTL for this document combination's cache bucket
-        await self.client.expire(cache_key, self.TTL_SECONDS)
+    async def set(self, query, doc_ids, answer, *, user_id, corpus_version="", context_fingerprint=""):
+        if not doc_ids:
+            return
+        key = self._generate_key(doc_ids, user_id=user_id, corpus_version=corpus_version, context_fingerprint=context_fingerprint)
+        try:
+            vector = await asyncio.to_thread(embedding_service.embed_text, query, task_type="SEMANTIC_SIMILARITY")
+            await self.client.hset(key, query, json.dumps({"embedding": vector, "answer": answer.model_dump()}))
+            await self.client.expire(key, self.TTL_SECONDS)
+            for doc_id in doc_ids:
+                index = self._doc_index(doc_id, user_id)
+                await self.client.sadd(index, key)
+                await self.client.expire(index, self.TTL_SECONDS)
+        except Exception:
+            logger.warning("Semantic cache write unavailable", exc_info=False)
 
-    async def invalidate(self, doc_id: str):
-        """
-        In a real system, you would iterate through keys and invalidate
-        any hash map where `doc_id` is part of the doc_ids hash.
-        For simplicity, we might flush the cache namespace if needed.
-        """
-        pass
+    async def invalidate(self, doc_id: str, *, user_id: str):
+        # Do not swallow deletion failures: callers retain a retryable document.
+        index = self._doc_index(doc_id, user_id)
+        keys = await self.client.smembers(index)
+        if keys:
+            await self.client.delete(*keys)
+        await self.client.delete(index)
+
 
 semantic_cache = SemanticCache()

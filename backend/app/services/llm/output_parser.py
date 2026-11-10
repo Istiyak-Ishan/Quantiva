@@ -1,9 +1,43 @@
 import json
 import re
-from typing import Type, TypeVar, Any
+from typing import Type, TypeVar
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def answer_string_prefix(raw_text: str) -> str:
+    """Decode the complete prefix of a streamed JSON answer string.
+
+    Do not emit JSON framing, incomplete escapes, or half a surrogate pair.
+    The final complete object is still validated with Pydantic before success.
+    """
+    match = re.search(r'"answer"\s*:\s*"', raw_text)
+    if match is None:
+        return ""
+    start, end = match.end(), match.end()
+    while end < len(raw_text):
+        character = raw_text[end]
+        if character == '"':
+            break
+        if character == "\\":
+            if end + 1 >= len(raw_text):
+                break
+            if raw_text[end + 1] == "u":
+                if end + 6 > len(raw_text):
+                    break
+                end += 6
+                continue
+            end += 2
+            continue
+        end += 1
+    try:
+        prefix = json.loads('"' + raw_text[start:end] + '"')
+        if prefix and 0xD800 <= ord(prefix[-1]) <= 0xDBFF:
+            prefix = prefix[:-1]
+        return prefix
+    except ValueError:
+        return ""
 
 class ParseError(Exception):
     def __init__(self, message: str, raw_text: str):
@@ -35,39 +69,3 @@ def parse_structured_output(raw_text: str, schema: Type[T]) -> T:
     except ValidationError as e:
         raise ParseError(f"Schema validation failed: {str(e)}", raw_text)
 
-def validate_and_retry(llm_client: Any, messages: list, schema: Type[T], max_retries: int = 3) -> T:
-    """
-    Calls the LLM. If the output fails validation, appends the error and retries up to max_retries.
-    """
-    # Create a local copy of messages to append errors to
-    current_messages = list(messages)
-    
-    for attempt in range(max_retries):
-        # Using a default system prompt for the raw text generation if not provided,
-        # but in our Agent logic, the system prompt is configured on the client.
-        # Assuming llm_client.complete handles (messages, system_prompt).
-        # Wait, for the Agent we pass system_prompt separately. 
-        # This function assumes llm_client is our GeminiClient.
-        raw_text = llm_client.complete(current_messages, "Return ONLY valid JSON matching the schema.")
-        
-        try:
-            return parse_structured_output(raw_text, schema)
-        except ParseError as e:
-            if attempt == max_retries - 1:
-                # If we exhausted retries, raise the exception to the caller (API will return 500)
-                raise Exception(f"Failed to generate structured output after {max_retries} attempts. Last error: {e}")
-                
-            # Otherwise, append the error and retry
-            retry_prompt = (
-                f"Your previous response failed validation. "
-                f"Error: {str(e)}\n"
-                f"Please fix the formatting and output valid JSON exactly matching the schema."
-            )
-            
-            # The LLM's invalid response
-            current_messages.append({"role": "assistant", "content": raw_text})
-            # Our correction command
-            current_messages.append({"role": "user", "content": retry_prompt})
-            
-    # Should not reach here due to the raise in the loop
-    raise Exception("Unknown validation error")

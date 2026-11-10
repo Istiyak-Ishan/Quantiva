@@ -1,6 +1,7 @@
 import boto3
 import uuid
 from botocore.exceptions import ClientError
+from botocore.config import Config
 from app.config import settings
 
 # Since S3 upload via boto3 is synchronous by default, we wrap it.
@@ -13,7 +14,8 @@ s3_client = boto3.client(
     endpoint_url=settings.S3_ENDPOINT_URL,
     aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
     aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-    region_name=settings.AWS_DEFAULT_REGION
+    region_name=settings.AWS_DEFAULT_REGION,
+    config=Config(connect_timeout=2, read_timeout=3, retries={"max_attempts": 1}),
 )
 
 BUCKET_NAME = "quantiva-documents"
@@ -55,3 +57,41 @@ def get_file(object_key: str) -> bytes:
 def delete_file(object_key: str):
     """Deletes a file from S3."""
     s3_client.delete_object(Bucket=BUCKET_NAME, Key=object_key)
+
+
+def presigned_url(object_key: str, expires_in: int = 3600) -> str:
+    """Sign a fresh browser-reachable GET URL for an existing object.
+
+    A new signer is created because the public/browser endpoint can differ
+    from the internal one used for uploads. The caller never persists this URL.
+    """
+    public_endpoint = settings.S3_PUBLIC_ENDPOINT_URL or settings.S3_ENDPOINT_URL
+    signer = boto3.client(
+        "s3",
+        endpoint_url=public_endpoint,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        region_name=settings.AWS_DEFAULT_REGION,
+        config=Config(connect_timeout=2, read_timeout=3, retries={"max_attempts": 1}),
+    )
+    try:
+        return signer.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": BUCKET_NAME, "Key": object_key},
+            ExpiresIn=expires_in,
+        )
+    finally:
+        signer.close()
+
+class StorageService:
+    @staticmethod
+    def upload_file(file_bytes: bytes, filename: str, content_type: str) -> str:
+        return upload_file(file_bytes, filename, content_type)
+
+    @staticmethod
+    def get_file(object_key: str) -> bytes:
+        return get_file(object_key)
+
+    @staticmethod
+    def delete_file(object_key: str):
+        return delete_file(object_key)

@@ -1,44 +1,17 @@
-from typing import Dict, Any
+"""Narrow prompt-override detection, not a general safety classifier.
+
+Benign security, finance, and educational content is not blocked for mentioning
+words like 'attack', 'kill', 'system prompt', or 'act as an analyst'.
+"""
+import re
+
 
 class ContentFilter:
-    def __init__(self):
-        # Basic heuristic blocklist for prompt injection and toxic content
-        self.injection_keywords = [
-            "ignore previous instructions",
-            "you are now",
-            "system prompt",
-            "forget all rules",
-            "act as a",
-            "bypassing"
-        ]
-        self.unsafe_keywords = [
-            "hack", "attack", "exploit", "kill", "murder", "bomb"
-        ]
+    OVERRIDE = re.compile(r"\b(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|system)\s+(?:instructions|rules)\b", re.I)
 
-    async def check(self, text: str) -> Dict[str, Any]:
-        """
-        Scans text for prompt injection attempts and unsafe content.
-        """
-        text_lower = text.lower()
-        categories = []
-        is_safe = True
-        
-        for kw in self.injection_keywords:
-            if kw in text_lower:
-                is_safe = False
-                categories.append("prompt_injection")
-                break
-                
-        for kw in self.unsafe_keywords:
-            if kw in text_lower:
-                is_safe = False
-                categories.append("unsafe_content")
-                break
-                
-        return {
-            "is_safe": is_safe,
-            "categories": categories,
-            "confidence": 0.95 if not is_safe else 1.0
-        }
+    async def check(self, text: str) -> dict:
+        blocked = bool(self.OVERRIDE.search(text))
+        return {"is_safe": not blocked, "categories": ["prompt_injection"] if blocked else []}
+
 
 content_filter = ContentFilter()

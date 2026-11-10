@@ -24,7 +24,37 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.config import settings
 from app.core.metrics import HTTP_LATENCY, HTTP_REQUESTS
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add browser hardening headers without breaking the OpenAPI UI.
+
+    The API only returns JSON/SSE/files, so a deny-all content policy is safe
+    outside the Swagger/ReDoc asset routes. HSTS is only emitted outside
+    development because local HTTP is intentionally supported.
+    """
+
+    DOCS_PREFIXES = ("/docs", "/redoc", "/openapi.json")
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        if not request.url.path.startswith(self.DOCS_PREFIXES):
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            )
+        if settings.APP_ENV in {"production", "staging"}:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+            )
+        return response
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):

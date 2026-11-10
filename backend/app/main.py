@@ -13,6 +13,7 @@ Wires together:
 """
 
 from contextlib import asynccontextmanager
+import asyncio
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -24,10 +25,16 @@ from app.api.v1.documents import router as documents_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.eval import router as eval_router
 from app.api.v1.metrics_endpoint import router as metrics_router
-from app.core.middleware import PrometheusMiddleware
+from app.api.v1.retrieval import router as retrieval_router
+from app.api.v1.charts import router as charts_router
+from app.core.middleware import PrometheusMiddleware, SecurityHeadersMiddleware
+from app.services.retrieval.vector_store import vector_store
+from app.core.rate_limiter import rate_limiter
+from app.core.storage import s3_client, BUCKET_NAME
+from app.services.memory.session_memory import session_memory
+from app.services.memory.semantic_cache import semantic_cache
+from fastapi.responses import JSONResponse
 
-import redis.asyncio as redis
-from qdrant_client import AsyncQdrantClient
 
 # ── API router ────────────────────────────────────────────────────────────────
 
@@ -36,6 +43,8 @@ api_v1_router.include_router(auth_router,      tags=["auth"])
 api_v1_router.include_router(documents_router, tags=["documents"])
 api_v1_router.include_router(chat_router,      tags=["chat"])
 api_v1_router.include_router(eval_router,      tags=["eval"])
+api_v1_router.include_router(retrieval_router)
+api_v1_router.include_router(charts_router)
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +58,11 @@ async def lifespan(app: FastAPI):
     yield
     # Gracefully drain the SQLAlchemy connection pool
     await engine.dispose()
+    await vector_store.client.close()
+    await rate_limiter.client.aclose()
+    await session_memory.client.aclose()
+    await semantic_cache.client.aclose()
+    s3_client.close()
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -57,7 +71,7 @@ app = FastAPI(
     description=(
         "Enterprise AI document agent platform.\n\n"
         "Upload PDFs, CSVs, Excel sheets, and Word docs, then ask questions "
-        "and get cited, streaming answers powered by Gemini 1.5 Flash with "
+        "and get cited, streaming answers powered by a configurable Gemini model with "
         "hybrid RAG (vector + BM25 + reranking)."
     ),
     version=settings.APP_VERSION,
@@ -72,11 +86,14 @@ app.add_middleware(PrometheusMiddleware)
 # 2. CORS — allow frontend origin; tighten in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://*.railway.app"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 3. Security headers — outermost so responses from every route are hardened.
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -85,44 +102,31 @@ app.include_router(metrics_router)   # GET /metrics — Prometheus scrape endpoi
 
 # ── Health check ──────────────────────────────────────────────────────────────
 
-@app.get("/health", tags=["Health"], summary="Deep health check")
+@app.get("/health", tags=["Health"], summary="Process liveness")
 async def health_check():
-    """
-    Deep health check — verifies connectivity to every backing service.
+    return {"status": "ok", "version": settings.APP_VERSION}
 
-    Returns 200 with `status: ok` if all services are reachable.
-    Returns 200 with `status: degraded` if any service is down
-    (we still return 200 so Railway / load balancers keep routing traffic
-    and the issue is visible in monitoring rather than causing a full restart).
-    """
-    status: dict = {"status": "ok", "version": settings.APP_VERSION, "services": {}}
 
-    # 1. Postgres
-    try:
+@app.get("/ready", tags=["Health"], summary="Dependency readiness")
+async def readiness_check():
+    async def postgres():
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-        status["services"]["postgres"] = "up"
-    except Exception as exc:
-        status["services"]["postgres"] = f"down: {exc}"
-        status["status"] = "degraded"
 
-    # 2. Redis
-    try:
-        r = redis.from_url(settings.REDIS_URL)
-        await r.ping()
-        await r.aclose()
-        status["services"]["redis"] = "up"
-    except Exception as exc:
-        status["services"]["redis"] = f"down: {exc}"
-        status["status"] = "degraded"
+    async def check(operation):
+        try:
+            await asyncio.wait_for(operation(), timeout=4)
+            return "up"
+        except Exception:
+            return "down"  # Never disclose driver exceptions, URLs or credentials.
 
-    # 3. Qdrant
-    try:
-        client = AsyncQdrantClient(url=settings.QDRANT_URL)
-        await client.get_collections()
-        status["services"]["qdrant"] = "up"
-    except Exception as exc:
-        status["services"]["qdrant"] = f"down: {exc}"
-        status["status"] = "degraded"
-
-    return status
+    operations = {
+        "postgres": postgres,
+        "redis": rate_limiter.client.ping,
+        "qdrant": vector_store.client.get_collections,
+        "s3": lambda: asyncio.to_thread(s3_client.head_bucket, Bucket=BUCKET_NAME),
+    }
+    results = await asyncio.gather(*(check(op) for op in operations.values()))
+    services = dict(zip(operations, results))
+    ready = all(value == "up" for value in results)
+    return JSONResponse(status_code=200 if ready else 503, content={"status": "ok" if ready else "degraded", "services": services})

@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, Float
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Text, Float, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from app.db.database import Base
 
 class Message(Base):
@@ -19,7 +19,14 @@ class Message(Base):
     
     tokens: Mapped[int] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=True)
-    cost_usd: Mapped[float] = mapped_column(Float, nullable=True, default=0.0)
+    cost_usd: Mapped[float | None] = mapped_column(Float().evaluates_none(), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    chart_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    guardrail_flags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String, nullable=True)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

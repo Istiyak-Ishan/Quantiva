@@ -9,6 +9,8 @@ from app.services.eval.eval_dataset import QAPair
 from app.services.eval.llm_judge import llm_judge
 from app.services.agents.orchestrator import orchestrator
 from app.models.chunk import Chunk
+from app.models.document import Document
+from app.core.ownership import owned_documents
 
 class EvalReport(BaseModel):
     avg_faithfulness: float
@@ -17,7 +19,7 @@ class EvalReport(BaseModel):
     per_question_scores: List[Dict[str, Any]]
 
 class EvalRunner:
-    async def run(self, dataset: List[QAPair], doc_ids: List[str], db: AsyncSession) -> EvalReport:
+    async def run(self, dataset: List[QAPair], doc_ids: List[str], db: AsyncSession, *, user_id: str, retriever=None) -> EvalReport:
         """
         Runs the full evaluation pipeline over a golden dataset.
         For each question:
@@ -26,10 +28,12 @@ class EvalRunner:
         3. Collect scores
         """
         
-        chunk_res = await db.execute(select(Chunk).where(Chunk.doc_id.in_(doc_ids)))
-        db_chunks = chunk_res.scalars().all()
+        ids = [uuid.UUID(d) for d in doc_ids]
+        docs = await owned_documents(db, ids, uuid.UUID(user_id))
+        chunk_res = await db.execute(select(Chunk).join(Document, Chunk.doc_id == Document.id).where(Chunk.doc_id.in_(ids), Document.user_id == uuid.UUID(user_id)))
+        db_chunks = list(chunk_res.scalars().all())
         
-        all_scores = []
+        all_scores: List[Dict[str, Any]] = []
         
         for pair in dataset:
             # 1. Run the agent
@@ -40,15 +44,16 @@ class EvalRunner:
                 session_id=fake_session_id,
                 doc_ids=doc_ids,
                 db_chunks=db_chunks
+                , user_id=user_id, history=[], use_cache=False, document_names={str(d.id): d.filename for d in docs}, retriever=retriever
             )
             
             answer_text = agent_result.answer.answer
             
             # Combine retrieved contexts into one string
-            retrieved_context = "\n".join([c.text for c in db_chunks])
+            retrieved_context = "\n".join(c.text_excerpt for c in agent_result.answer.citations)
             
             # 2. Judge the output
-            score = llm_judge.score(
+            score = await asyncio.to_thread(llm_judge.score,
                 question=pair.question,
                 retrieved_context=retrieved_context,
                 answer=answer_text

@@ -22,7 +22,7 @@ def chunk_text_blocks(blocks: List[Dict[str, Any]], chunk_size: int = 512, chunk
     final_chunks = []
     
     for block in blocks:
-        text = block.get("text", "")
+        text = block.get("text") or block.get("table_as_markdown") or ""
         if not text:
             continue
             

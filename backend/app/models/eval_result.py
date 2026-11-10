@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Float, DateTime, ForeignKey, Text, JSON
+from sqlalchemy import Float, DateTime, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from app.db.database import Base
 
 class EvalRun(Base):
@@ -10,6 +10,7 @@ class EvalRun(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     doc_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     avg_faithfulness: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     avg_context_relevance: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)

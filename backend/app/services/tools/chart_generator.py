@@ -1,79 +1,47 @@
+"""Per-request Matplotlib figures, off-loop rendering, renewable owner URLs."""
+import asyncio
 import io
+from threading import Lock
 import uuid
-from typing import Dict, Any, List
-try:
-    import matplotlib.pyplot as plt
-except ImportError:
-    plt = None
+
+from matplotlib.figure import Figure
+
 from app.core.storage import s3_client, BUCKET_NAME, ensure_bucket_exists
+
 
 class ChartGeneratorTool:
     def __init__(self):
-        pass
+        self._lock = Lock()
 
-    async def generate(self, data: Dict[str, List[Any]], chart_type: str, title: str, x_label: str = "", y_label: str = "") -> Dict[str, Any]:
-        """
-        Generates a chart from provided data, saves it to MinIO, and returns the public URL.
-        """
-        if not plt:
-            return {"success": False, "chart_url": None, "error": "Matplotlib not installed."}
-            
-        # Ensure 'x' and 'y' keys exist in data
-        x_data = data.get('x', [])
-        y_data = data.get('y', [])
-        
-        if not x_data or not y_data or len(x_data) != len(y_data):
-            return {"success": False, "chart_url": None, "error": "Invalid data format. Provide 'x' and 'y' arrays of equal length."}
-            
-        plt.figure(figsize=(8, 5))
-        
-        try:
-            if chart_type == "bar":
-                plt.bar(x_data, y_data, color='#3b82f6')
-            elif chart_type == "line":
-                plt.plot(x_data, y_data, marker='o', color='#10b981', linewidth=2)
-            elif chart_type == "scatter":
-                plt.scatter(x_data, y_data, color='#f59e0b')
-            elif chart_type == "pie":
-                plt.pie(y_data, labels=x_data, autopct='%1.1f%%', startangle=90)
+    def _generate(self, data, chart_type, title, x_label, y_label, owner_id):
+        if not owner_id:
+            return {"success": False, "chart_url": None, "error": "Chart owner is required"}
+        x, y = data.get("x", []), data.get("y", [])
+        if not x or len(x) != len(y) or len(x) > 1000 or chart_type not in {"bar", "line", "scatter", "pie"}:
+            return {"success": False, "chart_url": None, "error": "Invalid or oversized chart data"}
+        with self._lock:
+            figure = Figure(figsize=(8, 5))
+            axes = figure.subplots()
+            if chart_type == "pie":
+                axes.pie(y, labels=x, autopct="%1.1f%%")
             else:
-                return {"success": False, "chart_url": None, "error": f"Unsupported chart_type: {chart_type}"}
-                
-            plt.title(title)
-            if chart_type != "pie":
-                plt.xlabel(x_label)
-                plt.ylabel(y_label)
-            plt.grid(axis='y', linestyle='--', alpha=0.7)
-            plt.tight_layout()
-            
-            # Save chart to a bytes buffer
-            buf = io.BytesIO()
-            plt.savefig(buf, format='png', dpi=150)
-            buf.seek(0)
-            file_bytes = buf.getvalue()
-            
-            # Upload to MinIO
-            ensure_bucket_exists()
-            object_name = f"charts/{uuid.uuid4().hex}.png"
-            s3_client.put_object(
-                Bucket=BUCKET_NAME,
-                Key=object_name,
-                Body=file_bytes,
-                ContentType="image/png"
-            )
-            
-            # Generate a presigned URL valid for 24 hours
-            url = s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': BUCKET_NAME, 'Key': object_name},
-                ExpiresIn=86400
-            )
-            
-            return {"success": True, "chart_url": url, "error": None}
-            
-        except Exception as e:
-            return {"success": False, "chart_url": None, "error": str(e)}
-        finally:
-            plt.close() # Free memory
+                getattr(axes, "plot" if chart_type == "line" else chart_type)(x, y)
+                axes.set_xlabel(x_label)
+                axes.set_ylabel(y_label)
+            axes.set_title(title)
+            figure.tight_layout()
+            buffer = io.BytesIO()
+            figure.savefig(buffer, format="png", dpi=150)
+            figure.clear()
+        ensure_bucket_exists()
+        chart_name = f"{uuid.uuid4().hex}.png"
+        key = f"charts/{owner_id}/{chart_name}"
+        s3_client.put_object(Bucket=BUCKET_NAME, Key=key, Body=buffer.getvalue(), ContentType="image/png")
+        # Persist a stable authenticated path; /api/v1/charts re-signs on read.
+        return {"success": True, "chart_url": f"/api/v1/charts/{owner_id}/{chart_name}", "error": None}
+
+    async def generate(self, data, chart_type, title, x_label="", y_label="", *, owner_id):
+        return await asyncio.to_thread(self._generate, data, chart_type, title, x_label, y_label, owner_id)
+
 
 chart_generator = ChartGeneratorTool()

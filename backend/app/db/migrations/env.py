@@ -22,18 +22,20 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.
 
 from app.config import settings
 from app.db.database import Base
-from app.models.user import User
-from app.models.document import Document
-from app.models.chunk import Chunk
-from app.models.session import Session
-from app.models.message import Message
+from app.models.user import User  # noqa: F401 - registers model metadata
+from app.models.document import Document  # noqa: F401
+from app.models.chunk import Chunk  # noqa: F401
+from app.models.session import Session  # noqa: F401
+from app.models.message import Message  # noqa: F401
+from app.models.eval_result import EvalRun  # noqa: F401
+from app.models.auth_session import AuthSession  # noqa: F401
 
 # add your model's MetaData object here
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
 # Inject the dynamic DB URL
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

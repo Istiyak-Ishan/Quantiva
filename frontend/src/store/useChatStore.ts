@@ -18,6 +18,9 @@ export interface Message {
   confidence?: number;
   chart_url?: string;
   timestamp?: number;
+  guardrail_flags?: string[];
+  cache_hit?: boolean;
+  cost_usd?: number | null;
 }
 
 // ─── STATE INTERFACE ──────────────────────────────────────────────────────────
@@ -30,7 +33,6 @@ interface ChatState {
   // ── Streaming state ──
   isStreaming: boolean;
   streamingMessage: string;       // accumulates tokens in-flight
-  streamingCitations: Citation[]; // populated on the final 'done' event
 
   // ── Actions ──
   setSession: (sessionId: string) => void;
@@ -54,6 +56,7 @@ interface ChatState {
     citations?: Citation[],
     confidence?: number,
     chartUrl?: string,
+    metadata?: Partial<Message>,
   ) => void;
 
   /**
@@ -71,7 +74,6 @@ export const useChatStore = create<ChatState>()(
       currentSession: null,
       isStreaming: false,
       streamingMessage: '',
-      streamingCitations: [],
 
       setSession: (sessionId) => set({ currentSession: sessionId }, false, 'setSession'),
 
@@ -105,9 +107,12 @@ export const useChatStore = create<ChatState>()(
           'updateStreamingMessage',
         ),
 
-      finalizeMessage: (citations = [], confidence, chartUrl) =>
+      finalizeMessage: (citations = [], confidence, chartUrl, metadata = {}) =>
         set(
           (state) => {
+            if (!state.streamingMessage && !state.isStreaming && !metadata.content) {
+              return state;
+            }
             const finalMsg: Message = {
               role: 'assistant',
               content: state.streamingMessage,
@@ -115,12 +120,12 @@ export const useChatStore = create<ChatState>()(
               confidence,
               chart_url: chartUrl,
               timestamp: Date.now(),
+              ...metadata,
             };
             return {
               messages: [...state.messages, finalMsg],
               isStreaming: false,
               streamingMessage: '',
-              streamingCitations: [],
             };
           },
           false,
@@ -129,7 +134,7 @@ export const useChatStore = create<ChatState>()(
 
       abortStreaming: () =>
         set(
-          { isStreaming: false, streamingMessage: '', streamingCitations: [] },
+          { isStreaming: false, streamingMessage: '' },
           false,
           'abortStreaming',
         ),

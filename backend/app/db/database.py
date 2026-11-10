@@ -5,7 +5,7 @@ from app.config import settings
 # Create async SQLAlchemy engine
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,  # Set to False in production
+    echo=False,
     future=True
 )
 

@@ -1,12 +1,20 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import List, Dict, Any, Optional, Union
+from app.config import settings
 
 class Citation(BaseModel):
     doc_id: str
     filename: Optional[str] = None
-    page_or_row: str
+    page_or_row: Union[str, int]
     text_excerpt: str
     relevance_score: float
+
+    @field_validator("page_or_row", mode="before")
+    @classmethod
+    def coerce_page_or_row(cls, v):
+        if v is None:
+            return "1"
+        return v
 
 
 class AgentAnswer(BaseModel):
@@ -17,7 +25,10 @@ class AgentAnswer(BaseModel):
     chart_url: Optional[str] = Field(default=None, description="Optional URL to a generated chart.")
     reasoning_trace: Optional[str] = Field(default=None, description="The step-by-step logic the agent used.")
     tokens_used: int = Field(default=0, description="Total tokens consumed.")
-    model_used: str = Field(default="gemini-1.5-flash", description="The LLM model used.")
+    model_used: str = Field(default_factory=lambda: settings.GEMINI_CHAT_MODEL, description="The LLM model used.")
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float | None = None
     latency_ms: int = Field(default=0, description="Time taken to generate the response.")
     cache_hit: bool = Field(default=False, description="True if answer was served from semantic cache")
     guardrail_flags: List[str] = Field(default_factory=list, description="Any safety or hallucination flags raised.")

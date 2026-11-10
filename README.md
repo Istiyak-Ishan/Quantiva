@@ -1,328 +1,206 @@
-# Quantiva — Enterprise AI Document Agent Platform
+# Quantiva
 
-<div align="center">
+Document ingestion and cited question answering with FastAPI, Celery, PostgreSQL,
+Redis, Qdrant, S3, and Next.js 16.4.5 / React 19.
 
-![Quantiva Banner](https://placehold.co/1200x400/0a0a0a/60a5fa?text=Quantiva+%E2%80%94+AI+Document+Agent)
+## Current status
 
-**Upload any document. Ask any question. Get cited, streaming answers.**
+The application is under audit-driven repair. See [REPAIR_PROGRESS.md](REPAIR_PROGRESS.md)
+for verified findings, changes, exact test results, remaining acceptance checks,
+and estimated API usage. The original audit is retained unchanged.
 
-[![Python](https://img.shields.io/badge/Python-3.11-3776ab?style=flat&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat&logo=next.js&logoColor=white)](https://nextjs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?style=flat&logo=typescript&logoColor=white)](https://typescriptlang.org)
-[![Gemini](https://img.shields.io/badge/Gemini-1.5_Flash-4285f4?style=flat&logo=google&logoColor=white)](https://ai.google.dev)
-[![Qdrant](https://img.shields.io/badge/Qdrant-vector_DB-dc244c?style=flat)](https://qdrant.tech)
-[![Docker](https://img.shields.io/badge/Docker-compose-2496ed?style=flat&logo=docker&logoColor=white)](https://docker.com)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+**Tested:** backend API/security regressions, real local Qdrant filtering, PDF
+parsing, task-owned worker resources, actual Google generation/embedding access,
+and a synthetic PDF → real embeddings → local Qdrant → real cited-agent answer.
+Frontend lint, TypeScript, production builds and six Chromium production-browser
+contract tests have passed during repair; those browser tests intercept API responses.
 
-[Live Demo](https://quantiva.railway.app) · [API Docs](https://quantiva.railway.app/docs) · [Langfuse Traces](#observability)
+**Not yet established:** clean PostgreSQL migration/drift acceptance, container
+build/startup, live Redis/S3/Celery integration, external Langfuse delivery, and
+deployed full-stack/browser acceptance. Do not treat unit tests or the provider
+smoke script as proof that deployment works. No published performance benchmarks.
 
-</div>
+## Local setup
 
----
+Requires Docker Desktop's Linux engine and a Google API key with access to the
+configured models. The current defaults were checked against Google's model catalog:
 
-## ✨ What It Does
+- Chat: `GEMINI_CHAT_MODEL=gemini-3.5-flash-lite`
+- Text embeddings: `EMBEDDING_MODEL=gemini-embedding-001`, 768 normalized dimensions
+- Existing retired-model/random-vector collections are **not** reused or deleted.
 
-Quantiva is a **production-grade AI document intelligence platform** built from scratch over 16 days. Upload a PDF, Excel sheet, CSV, or Word document, ask a complex question, and watch a Gemini 1.5 Flash–powered reasoning agent stream a cited answer token by token — complete with source page references and confidence scores.
+1. If root `.env` does **not** exist, copy `.env.example` to `.env`. If it exists,
+   edit only missing configuration; never overwrite it with an example.
+2. Supply `GOOGLE_API_KEY`, a random `SECRET_KEY`, an independent random
+   `METRICS_TOKEN`, and `GRAFANA_ADMIN_PASSWORD`. Generate secrets with
+   `python -c "import secrets; print(secrets.token_urlsafe(48))"`; do not reuse them.
+3. Back up any existing PostgreSQL database before upgrading.
+4. Run `docker compose config --quiet`, then `docker compose up --build -d`.
+   The one-shot `migrate` service applies additive migrations before API startup.
+5. Check `docker compose ps`, `http://localhost:8000/ready`, and worker logs.
+6. Open `http://localhost:3000/register`, register, upload a small UTF-8 CSV or
+   text PDF, wait for readiness, ask a question, then reload to verify history.
 
-```
-User uploads Annual Report.pdf
-  → Celery worker: parse → chunk → embed → index in Qdrant + Postgres
+| Service | Local URL |
+|---|---|
+| Browser | http://localhost:3000 |
+| API docs | http://localhost:8000/docs |
+| Liveness / readiness | http://localhost:8000/health · /ready |
+| Prometheus | http://localhost:9091 |
+| Grafana | http://localhost:3002 |
 
-User asks: "What were the Q3 revenue figures and how do they compare to Q2?"
-  → ReasoningAgent runs hybrid search (vector + BM25 + cross-encoder rerank)
-  → Retrieves top-8 chunks, reasons over evidence
-  → Streams answer token by token via SSE
-  → Returns JSON: { answer, citations: [{page: 12, filename: "..."}], confidence: 0.94 }
-```
+The Compose stack is local-development infrastructure, bound to loopback. It is
+not a public production deployment template. No source bind mounts or dev servers
+are used in its application images. Langfuse is optional and external; the former
+incomplete local Langfuse topology is no longer started.
 
----
+### Without Docker
 
-## 🏗️ Architecture
+Use Python 3.11 and Node 22. Install CPU-only PyTorch and
+`backend/requirements.txt`; set actual PostgreSQL/Redis/Qdrant/S3 URLs using
+`backend/.env.example` as a reference. Run, from `backend/`:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Next.js 14 Frontend                       │
-│  FileUploader (react-dropzone) │ ChatWindow │ MessageBubble      │
-│  Zustand stores │ SSE EventSource │ Glassmorphism dark UI        │
-└───────────────────────┬─────────────────────────────────────────┘
-                        │ REST + SSE (HTTP)
-┌───────────────────────▼─────────────────────────────────────────┐
-│                    FastAPI Backend (Python 3.11)                  │
-│                                                                   │
-│  /api/v1/documents  →  Celery Worker  →  Ingestion Pipeline      │
-│    parse (PDF/Excel/CSV/DOCX)  →  chunk  →  embed  →  index     │
-│                                                                   │
-│  /api/v1/chat/message/stream  →  ReasoningAgent                  │
-│    HybridRetriever (Qdrant + BM25 + CrossEncoder rerank)         │
-│    GeminiClient (1.5 Flash)  →  token stream                     │
-│    SemanticCache (Redis + cosine similarity)                      │
-│    GuardrailsService (prompt injection + PII detection)          │
-└──────┬──────────┬──────────┬──────────┬──────────┬──────────────┘
-       │          │          │          │          │
-   Postgres    Redis      Qdrant     S3/MinIO  Langfuse
-   (metadata) (cache/    (vectors)  (files)   (LLM traces)
-              sessions)
-                                                    │
-                                              Prometheus → Grafana
-```
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Docker Desktop
-- Google AI API key ([get one free](https://aistudio.google.com/app/apikey))
-
-### One-command startup
-
-```bash
-git clone https://github.com/yourusername/quantiva
-cd quantiva
-
-# Add your API key
-echo "GOOGLE_API_KEY=your-key-here" > .env
-echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
-
-# Start everything
-docker compose up -d
-
-# Run database migrations
-docker compose exec backend alembic upgrade head
+```sh
+alembic upgrade head
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+# Separate terminal; native Windows Celery may need --pool=solo for development.
+celery -A app.workers.celery_app worker --loglevel=info
 ```
 
-That's it. The full stack starts in ~45 seconds:
+From `frontend/`, run `npm ci` and `npm run dev`. By default the frontend proxies
+`/api/v1/*` to `http://localhost:8000`; `BACKEND_URL` changes this destination at
+Next.js build time. Same-origin proxying avoids third-party cookie requirements.
+Bearer clients may access the API directly. Use explicit `CORS_ORIGINS` JSON
+origins if browser requests are cross-origin; wildcard origins are rejected.
 
-| Service | URL | Description |
-|---------|-----|-------------|
-| **Frontend** | http://localhost:3000 | Next.js chat UI |
-| **API Docs** | http://localhost:8000/docs | FastAPI Swagger |
-| **Langfuse** | http://localhost:3001 | LLM trace viewer |
-| **Grafana** | http://localhost:3002 | Metrics dashboard |
-| **Prometheus** | http://localhost:9090 | Metrics scraper |
+## Workflow and security contract
 
----
+- Login/register issue typed access and rotating refresh tokens. Browser credentials
+  use HttpOnly cookies; API/MCP clients use `Authorization: Bearer <access token>`.
+  URL credentials and `mock-token` are rejected. Existing legacy tokens require login.
+- Access checks validate active users and revocable login sessions. Cookie-authenticated
+  mutations require a configured trusted `Origin`. Logout revokes the login session.
+- All document/session/history/evaluation routes are owner scoped. Qdrant filters
+  require both owner and document IDs. Unknown/foreign resources return 404; malformed
+  IDs return 422. No fallback sessions or substitute conversations.
+- PDF, DOCX, XLSX, CSV and UTF-8 text upload is bounded to 25 MiB by default,
+  with signature/Office structure checks. Set `CLAMAV_HOST` to enable a fail-closed
+  ClamAV INSTREAM scan; without it this is **not antivirus scanning**.
+- Worker failures remain failures, not ready documents with substitute vectors.
+  Full chunk text is stored for BM25 and citations. Chunk sizes are **characters**,
+  not tokens; duplicate PDF table/text blocks are collapsed while table chunks are
+  preserved. The backend image installs Tesseract and English language data;
+  scanned-PDF acceptance on real infrastructure remains outstanding.
+- API responses include nosniff, frame-deny, referrer and permissions policies;
+  a deny-all CSP is applied outside the OpenAPI UI, and HSTS is production-only.
+- SSE carries actual model output, buffered at sentence/newline boundaries for
+  PII checks. Final success is sent only after database persistence. Failures use
+  structured SSE error events; partial failed output is not finalized as success.
+- `confidence` currently means an **embedding-based source-support heuristic**,
+  not calibrated correctness probability. With no sources it is zero/flagged.
+- Token counts are provider metadata. `cost_usd` is `null` unless current model
+  rates are configured with `LLM_INPUT_USD_PER_MILLION` and
+  `LLM_OUTPUT_USD_PER_MILLION`; cache hits consume zero generation tokens.
+- Semantic cache keys include owner, corpus generation, model/dimensions and
+  conversation context. Document invalidation is implemented.
+- Deletion removes active-index vectors, cache and raw storage before the row.
+  Cleanup failure leaves a non-queryable `deleting` document; retry DELETE.
+  Legacy vector collections require separately approved cleanup.
 
-## 🛠️ Tech Stack
+### Guardrails and tools
 
-### Backend
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| API | **FastAPI** | Async, auto-docs, typed |
-| LLM | **Gemini 1.5 Flash** | Fast, cheap, 1M token context |
-| Vector DB | **Qdrant** | HNSW index, payload filtering |
-| Keyword search | **BM25 (rank_bm25)** | Complements dense retrieval |
-| Reranking | **CrossEncoder (ms-marco)** | Precision over recall |
-| Semantic cache | **Redis + cosine sim** | Skip LLM for repeated queries |
-| Background jobs | **Celery + Redis** | Async document processing |
-| Object storage | **S3 / MinIO** | Raw file storage |
-| Database | **PostgreSQL + SQLAlchemy** | Document & chunk metadata |
-| Auth | **JWT (python-jose)** | Stateless authentication |
-| Observability | **Langfuse + Prometheus** | LLM traces + metrics |
+`PII_ENGINE=patterns` deterministically redacts email, SSN, phone and card-like
+identifiers. It does **not** claim person-name/address detection. To enable
+Presidio NLP, explicitly provision `SPACY_MODEL` (default `en_core_web_sm`) and
+set `PII_ENGINE=presidio`; missing capability fails closed. No model downloads
+occur on application import.
 
-### Frontend
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Framework | **Next.js 14 App Router** | SSR, nested layouts, RSC |
-| Language | **TypeScript** | Type safety end-to-end |
-| Styling | **Tailwind CSS v4** | Utility-first, fast iteration |
-| State | **Zustand** | 1KB, no boilerplate |
-| Streaming | **EventSource (SSE)** | Native browser API, no WebSocket overhead |
-| File upload | **react-dropzone** | Drag-and-drop + XHR progress |
-| Components | **shadcn/ui** | Owns the code, fully customizable |
+RestrictedPython calculations run in a killable child with isolated output,
+restricted builtins and bounded input/output. Linux also applies process resource
+limits. RestrictedPython is **not a complete security sandbox**; production requires
+container/network/resource isolation. Charts use Matplotlib and signed S3 URLs.
+Messages persist a stable owner-scoped `/api/v1/charts/{owner}/{name}` path;
+loading a historical chart re-signs it, so old conversations survive URL expiry.
+Set `S3_PUBLIC_ENDPOINT_URL` to a browser-reachable endpoint, not the internal host.
 
----
+`/health` is process liveness only; `/ready` checks PostgreSQL, Redis, Qdrant and S3,
+returns 503 when degraded, and never exposes driver exception strings. `/metrics`
+requires `METRICS_TOKEN` and is disabled without one. HTTP/LLM/cache/stream/retrieval
+metrics are instrumented. The ingestion counter is emitted by the worker and needs
+Prometheus multiprocess aggregation to appear in the API scrape; that aggregation
+is not yet a complete observability solution.
 
-## 📁 Project Structure
+## Existing data and migration safety
 
-```
-quantiva/
-├── backend/
-│   ├── app/
-│   │   ├── api/v1/          # REST endpoints (auth, documents, chat, eval)
-│   │   ├── core/            # Security, middleware, metrics, dependencies
-│   │   ├── db/              # SQLAlchemy models + Alembic migrations
-│   │   ├── schemas/         # Pydantic request/response schemas
-│   │   ├── services/
-│   │   │   ├── agents/      # ReasoningAgent, DataAnalystAgent
-│   │   │   ├── ingestion/   # PDF/Excel/CSV/DOCX parsers + chunker
-│   │   │   ├── llm/         # GeminiClient (with Langfuse tracing)
-│   │   │   ├── memory/      # Session memory + semantic cache
-│   │   │   ├── retrieval/   # HybridRetriever + Qdrant + BM25 + reranker
-│   │   │   └── tools/       # Python executor, chart generator
-│   │   └── workers/         # Celery tasks (document ingestion)
-│   ├── mcp_server/          # MCP server (Claude Desktop / Antigravity)
-│   └── tests/               # pytest test suite
-├── frontend/
-│   └── src/
-│       ├── app/             # Next.js App Router pages
-│       ├── components/      # ChatWindow, MessageBubble, FileUploader
-│       ├── lib/             # Axios API client
-│       └── store/           # Zustand stores (chat, documents)
-├── monitoring/
-│   ├── prometheus.yml       # Scrape config
-│   └── grafana/             # Auto-provisioned dashboards
-├── .github/workflows/       # CI/CD (lint → test → Docker push)
-├── docker-compose.yml       # Full stack (10 services)
-└── railway.json             # Railway.app deployment config
-```
+Read [docs/OPERATIONS.md](docs/OPERATIONS.md) before updating an existing instance.
+Do not drop collections, reset migrations, run `docker compose down -v`, or replace
+secrets as a troubleshooting shortcut. No repair command has been applied to your
+existing database in this session.
 
----
+Legacy chunks cannot recover text lost beyond 200 characters. After backing up,
+an authenticated owner can explicitly call `POST /api/v1/documents/{id}/reindex`.
+This reparses the retained source into the new model/dimension-specific collection;
+it does not delete the legacy collection. No bulk reindex runs automatically.
 
-## 🔬 Observability
+## Tests
 
-### Langfuse — LLM Traces (http://localhost:3001)
-
-Every LLM call creates a structured trace:
-
-```
-trace: "user-question" (session_id, user_id)
-├── span: "retrieval"  (query, chunk_count, latency_ms)
-├── generation: "llm-call" (model, input_tokens, output_tokens, cost_usd, latency)
-└── span: "tool:python_executor" (code, output)
-```
-
-Login: `admin@quantiva.ai` / `changeme`
-
-### Grafana — Metrics (http://localhost:3002)
-
-Pre-built dashboard includes:
-- Request rate by endpoint
-- P95 latency
-- LLM token consumption (input vs output, by model)
-- Semantic cache hit rate
-- Active SSE streaming sessions
-- 5xx error rate
-
-Login: `admin` / `admin`
-
----
-
-## 🤖 MCP Server
-
-Quantiva exposes its document intelligence as an MCP server, making it usable from Claude Desktop, Antigravity IDE, or any MCP-compatible agent.
-
-```bash
-# Tools available to any MCP host:
-search_documents(query, user_id, doc_ids?, top_k?)  → chunks[]
-summarize_document(doc_id, user_id, style?)          → summary
-ask_question(question, user_id, doc_ids?, session_id?) → {answer, citations, confidence}
-```
-
-**Add to Antigravity IDE (settings.json):**
-```json
-{
-  "mcp.servers": [{
-    "name": "quantiva",
-    "command": "python -m mcp_server.server",
-    "cwd": "/path/to/quantiva/backend",
-    "env": {
-      "QUANTIVA_API_URL": "http://localhost:8000/api/v1",
-      "QUANTIVA_TOKEN": "your-jwt-token"
-    }
-  }]
-}
-```
-
----
-
-## ☁️ Deploy to Railway
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template)
-
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login and deploy
-railway login
-railway init
-railway up
-
-# Add environment variables in the Railway dashboard:
-# GOOGLE_API_KEY, SECRET_KEY, DATABASE_URL (auto-injected), REDIS_URL (auto-injected)
-```
-
-Railway auto-provisions Postgres and Redis. Point your custom domain at the generated Railway URL.
-
----
-
-## 🧪 Running Tests
-
-```bash
+```sh
 cd backend
-pip install -r requirements.txt pytest pytest-asyncio
+pip install -r requirements-test.txt
+HF_HUB_OFFLINE=1 python -m pytest tests/ -q
+python -m ruff check app/ --select F,E9
+python -m mypy app/ --explicit-package-bases --ignore-missing-imports --no-strict-optional
 
-# Unit + integration tests
-pytest tests/ -v
-
-# With coverage
-pytest tests/ --cov=app --cov-report=html
+# Explicit opt-in API usage; synthetic text/PDF only, no existing data mutation:
+python scripts/check_providers.py --live
+HF_HUB_OFFLINE=1 python scripts/check_local_rag.py --live
 ```
 
----
+The PostgreSQL migration/drift test runs only when `TEST_POSTGRES_URL` explicitly
+targets a disposable database named `quantiva_test_*`. It otherwise skips rather
+than pretending migration acceptance passed. Browser contract tests use intercepted
+API responses and must not be described as a live infrastructure E2E test.
 
-## 📊 Performance Characteristics
-
-| Metric | Value |
-|--------|-------|
-| Document ingestion (10-page PDF) | ~8 seconds |
-| First token latency (cold, no cache) | ~1.2 seconds |
-| First token latency (cache hit) | ~40ms |
-| Semantic cache hit rate (repeated queries) | ~70% |
-| Hybrid retrieval (vector + BM25 + rerank) | ~180ms |
-| Concurrent streaming sessions supported | 100+ |
-
----
-
-## 📖 API Reference
-
-Full OpenAPI docs at `/docs` when running. Key endpoints:
-
-```
-POST /api/v1/auth/register        Create account
-POST /api/v1/auth/login           Get JWT token
-
-POST /api/v1/documents/upload     Upload document (multipart)
-GET  /api/v1/documents/{id}/status  SSE: indexing progress
-
-POST /api/v1/chat/sessions        Create chat session
-GET  /api/v1/chat/message/stream  SSE: stream answer tokens
-GET  /api/v1/chat/sessions/{id}/history  Conversation history
-
-GET  /health                      Deep health check
-GET  /metrics                     Prometheus metrics
+```sh
+cd frontend
+npm ci
+npm run lint
+npm run build
+npx playwright install chromium
+npm run test:e2e
 ```
 
----
+## API and MCP
 
-## 🗺️ Day-by-Day Build Log
+Authoritative request/response schemas are in running OpenAPI `/docs`.
 
-| Days | What was built |
-|------|---------------|
-| 1–2 | Project scaffold, Docker, Postgres, SQLAlchemy models, Alembic migrations |
-| 3–4 | Document ingestion pipeline: PDF/Excel/CSV/DOCX parsers, chunker |
-| 5–6 | Qdrant vector store, embedding service (Google text-embedding-004) |
-| 7–8 | Hybrid retriever: BM25 + vector + CrossEncoder reranking |
-| 9–10 | GeminiClient, ReasoningAgent, DataAnalystAgent, tool registry |
-| 11–12 | Redis session memory, semantic cache, context budget manager |
-| 13 | Auth (JWT), rate limiting, guardrails (prompt injection + PII) |
-| 14 | Eval framework (RAGAS-style: faithfulness, relevance, groundedness) |
-| 15 | Next.js 14 frontend: FileUploader, ChatWindow, streaming MessageBubble |
-| 16 | Langfuse tracing, Prometheus metrics, MCP server, CI/CD, Railway deploy |
+```text
+POST /api/v1/auth/register, /auth/login, /auth/refresh, /auth/logout
+GET  /api/v1/auth/me
+POST /api/v1/documents/upload
+GET  /api/v1/documents, /documents/{id}, /documents/{id}/chunks
+GET  /api/v1/documents/{id}/status                 SSE
+GET  /api/v1/documents/{id}/download               Owner-scoped original file
+POST /api/v1/documents/{id}/reindex                Explicit retry/reindex
+DELETE /api/v1/documents/{id}
+GET  /api/v1/charts/{owner}/{name}                 Owner-scoped renewable chart
+POST /api/v1/chat/sessions, /chat/message
+GET  /api/v1/chat/sessions, /chat/sessions/{id}
+GET  /api/v1/chat/sessions/{id}/history
+GET  /api/v1/chat/message/stream                   Cookie or header auth; no token URL
+DELETE /api/v1/chat/sessions/{id}
+POST /api/v1/retrieval/search
+POST /api/v1/eval/run?doc_id={id}                  Queued Celery evaluation
+GET  /api/v1/eval/history/list, /eval/{id}
+```
 
----
+MCP: from `backend/`, run `python -m mcp_server.server` with `QUANTIVA_API_URL`
+and a real `QUANTIVA_TOKEN`. Identity is always the authenticated owner, not a tool
+argument. Tools: `search_documents(query, doc_ids?, top_k?)`,
+`summarize_document(doc_id, style?)`, `ask_question(question, doc_ids?, session_id?)`.
+An existing session's document scope cannot be overridden silently.
 
-## 📄 License
-
-MIT — see [LICENSE](LICENSE).
-
----
-
-<div align="center">
-Built end-to-end in 16 days as a portfolio project demonstrating production AI engineering.
-<br>
-<strong>Stack: FastAPI · Gemini · Qdrant · Redis · Celery · Next.js · TypeScript · Docker · Langfuse · MCP</strong>
-</div>
-
+Railway configuration is **backend-only**; external PostgreSQL/Redis/Qdrant/S3,
+worker and frontend services must be configured separately. No automatic full-stack
+Railway provisioning or live demo availability is claimed. The learning handbook
+and interview walkthrough are historical design notes, not operational instructions.

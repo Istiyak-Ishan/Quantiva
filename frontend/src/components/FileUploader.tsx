@@ -13,7 +13,7 @@
  *   7. EventSource closed automatically
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import {
   UploadCloud,
@@ -25,9 +25,15 @@ import {
   FileSpreadsheet,
   FileType,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { useDocumentStore, Document } from '@/store/useDocumentStore';
-import { uploadDocument, watchDocumentStatus } from '@/lib/api';
+import {
+  uploadDocument,
+  watchDocumentStatus,
+  deleteDocument,
+  reindexDocument,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 // ─── FILE TYPE ICON ───────────────────────────────────────────────────────────
@@ -91,9 +97,10 @@ function ProgressBar({ progress }: { progress: number }) {
 interface DocItemProps {
   doc: Document;
   onRemove: (id: string) => void;
+  onRetry: (id: string) => void;
 }
 
-function DocItem({ doc, onRemove }: DocItemProps) {
+function DocItem({ doc, onRemove, onRetry }: DocItemProps) {
   const showProgress =
     (doc.status === 'uploading' || doc.status === 'processing') &&
     doc.uploadProgress > 0 &&
@@ -107,9 +114,31 @@ function DocItem({ doc, onRemove }: DocItemProps) {
           {doc.filename}
         </span>
         <StatusBadge status={doc.status} />
+        {doc.status === 'failed' && !doc.id.startsWith('temp-') && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRetry(doc.id);
+            }}
+            className="p-1 rounded text-amber-400 hover:text-amber-200 hover:bg-amber-500/20 transition-all"
+            title={`Retry indexing ${doc.filename}`}
+            aria-label={`Retry indexing ${doc.filename}`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
-          onClick={() => onRemove(doc.id)}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-all"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(doc.id);
+          }}
+          className={cn(
+            'p-1 rounded transition-all',
+            doc.status === 'failed'
+              ? 'opacity-100 text-red-400 hover:text-red-200 hover:bg-red-500/20'
+              : 'opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50',
+          )}
+          title={`Delete ${doc.filename}`}
           aria-label={`Remove ${doc.filename}`}
         >
           <X className="w-3.5 h-3.5" />
@@ -123,6 +152,12 @@ function DocItem({ doc, onRemove }: DocItemProps) {
           {doc.chunkCount} chunks indexed
         </p>
       )}
+
+      {doc.status === 'failed' && doc.failureReason && (
+        <p className="text-[10px] text-red-400/80 pl-6 leading-snug">
+          {doc.failureReason}
+        </p>
+      )}
     </div>
   );
 }
@@ -133,9 +168,48 @@ function DocItem({ doc, onRemove }: DocItemProps) {
 const activeEventSources = new Map<string, EventSource>();
 
 export function FileUploader() {
-  const { documents, addDocument, updateStatus, removeDocument, replaceId } =
+  const { documents, fetchDocuments, addDocument, updateStatus, removeDocument, replaceId } =
     useDocumentStore();
   const esRefs = useRef(activeEventSources);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const watch = useCallback(
+    (id: string) => {
+      esRefs.current.get(id)?.close();
+      const es = watchDocumentStatus(
+        id,
+        (statusData) => {
+          updateStatus(
+            id,
+            statusData.status,
+            100,
+            statusData.chunk_count,
+            statusData.failure_reason ?? null,
+          );
+          if (statusData.status === 'ready' || statusData.status === 'failed') {
+            esRefs.current.delete(id);
+          }
+        },
+        () => {
+          // SSE error — surface an actionable failure instead of a spinner.
+          updateStatus(
+            id,
+            'failed',
+            undefined,
+            undefined,
+            'Lost connection while indexing. Retry indexing.',
+          );
+          esRefs.current.delete(id);
+        },
+      );
+
+      esRefs.current.set(id, es);
+    },
+    [updateStatus],
+  );
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -157,39 +231,16 @@ export function FileUploader() {
 
           // ── 3. Replace temp id with real server id ─────────────────────────
           replaceId(tempId, res.id);
-          updateStatus(res.id, 'processing', 100);
+          updateStatus(res.id, 'processing', 100, undefined, null);
 
           // ── 4. Watch SSE status until 'ready' ─────────────────────────────
-          const es = watchDocumentStatus(
-            res.id,
-            (statusData) => {
-              updateStatus(
-                res.id,
-                statusData.status,
-                100,
-                statusData.chunk_count,
-              );
-              if (
-                statusData.status === 'ready' ||
-                statusData.status === 'failed'
-              ) {
-                esRefs.current.delete(res.id);
-              }
-            },
-            () => {
-              // SSE error — mark failed
-              updateStatus(res.id, 'failed');
-              esRefs.current.delete(res.id);
-            },
-          );
-
-          esRefs.current.set(res.id, es);
+          watch(res.id);
         } catch {
-          updateStatus(tempId, 'failed');
+          updateStatus(tempId, 'failed', undefined, undefined, 'Upload failed. Retry the upload.');
         }
       }
     },
-    [addDocument, updateStatus, replaceId],
+    [addDocument, updateStatus, replaceId, watch],
   );
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } =
@@ -201,15 +252,39 @@ export function FileUploader() {
         'text/csv': ['.csv'],
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
       },
-      maxSize: 100 * 1024 * 1024, // 100 MB
+      maxSize: 25 * 1024 * 1024, // Matches backend default MAX_UPLOAD_BYTES
       multiple: true,
     });
 
-  const handleRemove = (id: string) => {
+  const handleRemove = async (id: string) => {
     // Close SSE if still watching
     esRefs.current.get(id)?.close();
     esRefs.current.delete(id);
-    removeDocument(id);
+    if (id.startsWith('temp-')) { removeDocument(id); return; }
+    try {
+      await deleteDocument(id);
+      removeDocument(id);
+    } catch {
+      window.alert('Document cleanup failed. Please retry deletion.');
+    }
+  };
+
+  const handleRetry = async (id: string) => {
+    esRefs.current.get(id)?.close();
+    esRefs.current.delete(id);
+    try {
+      await reindexDocument(id);
+      updateStatus(id, 'processing', 100, undefined, null);
+      watch(id);
+    } catch {
+      updateStatus(
+        id,
+        'failed',
+        undefined,
+        undefined,
+        'Retry failed. The ingestion worker may be unavailable.',
+      );
+    }
   };
 
   return (
@@ -224,8 +299,8 @@ export function FileUploader() {
           isDragActive && !isDragReject
             ? 'border-blue-500 bg-blue-500/8 dropzone-active'
             : isDragReject
-            ? 'border-red-500 bg-red-500/8'
-            : 'border-neutral-700 bg-neutral-900/30 hover:border-neutral-500 hover:bg-neutral-800/30',
+              ? 'border-red-500 bg-red-500/8'
+              : 'border-neutral-700 bg-neutral-900/30 hover:border-neutral-500 hover:bg-neutral-800/30',
         )}
         aria-label="Drop zone for document upload"
       >
@@ -238,8 +313,8 @@ export function FileUploader() {
             isDragActive && !isDragReject
               ? 'bg-blue-500/20 scale-110'
               : isDragReject
-              ? 'bg-red-500/20'
-              : 'bg-neutral-800',
+                ? 'bg-red-500/20'
+                : 'bg-neutral-800',
           )}
         >
           {isDragReject ? (
@@ -258,13 +333,13 @@ export function FileUploader() {
           {isDragReject
             ? 'File type not supported'
             : isDragActive
-            ? 'Drop to upload'
-            : 'Drag & drop files here'}
+              ? 'Drop to upload'
+              : 'Drag & drop files here'}
         </p>
         <p className="text-xs text-neutral-500 mt-1 text-center">
           {isDragReject
             ? 'Supported: PDF, DOCX, CSV, XLSX'
-            : 'PDF, DOCX, CSV, XLSX · Max 100 MB'}
+            : 'PDF, DOCX, CSV, XLSX · Max 25 MB'}
         </p>
 
         {!isDragActive && (
@@ -290,7 +365,7 @@ export function FileUploader() {
             </span>
           </div>
           {documents.map((doc) => (
-            <DocItem key={doc.id} doc={doc} onRemove={handleRemove} />
+            <DocItem key={doc.id} doc={doc} onRemove={handleRemove} onRetry={handleRetry} />
           ))}
         </div>
       )}

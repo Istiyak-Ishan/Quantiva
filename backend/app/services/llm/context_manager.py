@@ -9,12 +9,9 @@ class ContextPlan(BaseModel):
 
 class ContextBudgetManager:
     def __init__(self):
-        # Gemini 1.5 Flash has a massive 1M window, but Llama is 128k. 
-        # We enforce limits to prevent latency/cost spikes.
+        # Conservative application budget, independent of a vendor's maximum.
         self.MODEL_LIMITS = {
-            "gemini-1.5-flash": 1_000_000,
-            "llama3.1:8b": 128_000,
-            "default": 128_000
+            "default": 32000
         }
         
         # We strictly allocate percentages of the total budget to avoid one area dominating
@@ -41,7 +38,7 @@ class ContextBudgetManager:
         Keeps only the most recent messages that fit within the history budget.
         Trims from the oldest (start of list).
         """
-        kept_messages = []
+        kept_messages: List[Dict[str, Any]] = []
         current_tokens = 0
         
         # Iterate backwards (newest to oldest)

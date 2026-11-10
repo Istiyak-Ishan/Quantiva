@@ -10,6 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../back
 async def main():
     parser = argparse.ArgumentParser(description="Run Quantiva Agent Evaluation")
     parser.add_argument("--doc_id", type=str, required=True, help="Document ID to evaluate against")
+    parser.add_argument("--user_id", type=str, required=True, help="Owner ID (trusted operator CLI only)")
     parser.add_argument("--n_questions", type=int, default=5, help="Number of questions to generate")
     args = parser.parse_args()
     
@@ -21,7 +22,7 @@ async def main():
     
     async with AsyncSessionLocal() as db:
         print(f"1. Generating Golden Dataset (n={args.n_questions})...")
-        dataset = await eval_dataset_generator.generate_qa_pairs(args.doc_id, db, n=args.n_questions)
+        dataset = await eval_dataset_generator.generate_qa_pairs(args.doc_id, db, n=args.n_questions, user_id=args.user_id)
         print(f"   Generated {len(dataset)} questions.")
         
         if not dataset:
@@ -29,7 +30,7 @@ async def main():
             return
             
         print("2. Running Agent and LLM-as-Judge...")
-        report = await eval_runner.run(dataset, [args.doc_id], db)
+        report = await eval_runner.run(dataset, [args.doc_id], db, user_id=args.user_id)
         
         print("\n" + "="*50)
         print("EVALUATION REPORT")

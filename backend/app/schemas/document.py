@@ -1,7 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
 
 class DocumentResponse(BaseModel):
     id: uuid.UUID
@@ -10,6 +9,7 @@ class DocumentResponse(BaseModel):
     file_size: int
     status: str
     chunk_count: int
+    failure_reason: str | None = None
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
@@ -24,3 +24,4 @@ class DocumentStatusResponse(BaseModel):
     id: uuid.UUID
     status: str
     chunk_count: int
+    failure_reason: str | None = None

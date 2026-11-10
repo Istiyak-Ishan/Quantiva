@@ -13,6 +13,9 @@
 
 import React, { useState, useRef, useEffect, memo } from 'react';
 import Image from 'next/image';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { openDocument, errorMessage } from '@/lib/api';
 import { Message, Citation } from '@/store/useChatStore';
 import { cn } from '@/lib/utils';
 import {
@@ -94,7 +97,7 @@ function CitationPanel({ citation, index, onClose }: CitationPanelProps) {
           </div>
           <blockquote className="relative pl-4 border-l-2 border-blue-500/60">
             <p className="text-sm text-neutral-300 leading-relaxed italic">
-              "{citation.text_excerpt}"
+              &ldquo;{citation.text_excerpt}&rdquo;
             </p>
           </blockquote>
         </div>
@@ -105,7 +108,7 @@ function CitationPanel({ citation, index, onClose }: CitationPanelProps) {
             <span className="text-xs text-neutral-600">
               Source #{index + 1}
             </span>
-            <button className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+            <button onClick={() => { void openDocument(citation.doc_id).catch((error) => window.alert(errorMessage(error))); }} className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
               <ExternalLink className="w-3 h-3" />
               Open document
             </button>
@@ -124,7 +127,7 @@ function ConfidenceMeter({ score }: { score: number }) {
     pct >= 80 ? 'bg-emerald-500' : pct >= 60 ? 'bg-yellow-500' : 'bg-red-500';
 
   return (
-    <div className="flex items-center gap-2 mt-3">
+    <div className="flex items-center gap-2 mt-3" title="Source-support heuristic, not calibrated probability">
       <Brain className="w-3.5 h-3.5 text-neutral-500" />
       <div className="flex-1 h-1.5 bg-neutral-700/50 rounded-full overflow-hidden">
         <div
@@ -150,24 +153,11 @@ function StreamingText({
   content: string;
   isStreaming?: boolean;
 }) {
-  const words = content.split(/(\s+)/);
-
   return (
-    <span className="text-[15px] leading-relaxed whitespace-pre-wrap">
-      {words.map((word, i) => (
-        <span
-          key={i}
-          style={{
-            display: 'inline',
-            animation: isStreaming ? `tokenFadeIn 0.12s ease-out both` : 'none',
-            animationDelay: isStreaming ? `${Math.min(i, 30) * 8}ms` : '0ms',
-          }}
-        >
-          {word}
-        </span>
-      ))}
+    <div className="text-[15px] leading-relaxed break-words [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_pre]:bg-neutral-950 [&_pre]:p-3 [&_table]:block [&_table]:overflow-x-auto [&_td]:border [&_td]:p-2 [&_th]:border [&_th]:p-2 [&_h1]:text-xl [&_h2]:text-lg [&_h3]:font-bold">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ a: (props) => <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline" /> }}>{content}</ReactMarkdown>
       {isStreaming && <span className="streaming-cursor" aria-hidden="true" />}
-    </span>
+    </div>
   );
 }
 
@@ -244,7 +234,7 @@ export const MessageBubble = memo(function MessageBubble({
   const hasCitations = !isUser && !!message.citations?.length;
   const hasConfidence = typeof message.confidence === 'number';
   const hasChart = !!message.chart_url;
-  const hasFlags = !!(message as any).guardrail_flags?.length;
+  const hasFlags = !!message.guardrail_flags?.length;
 
   return (
     <>
@@ -279,11 +269,12 @@ export const MessageBubble = memo(function MessageBubble({
         >
           {/* ── Message content ── */}
           <StreamingText content={message.content} isStreaming={isStreaming} />
+          {message.cache_hit && <CacheHitBadge />}
 
           {/* ── Guardrail flags ── */}
           {hasFlags && (
             <div className="mt-3 p-2.5 bg-red-900/20 border border-red-900/40 rounded-lg">
-              {(message as any).guardrail_flags.map((flag: string, i: number) => (
+              {message.guardrail_flags?.map((flag: string, i: number) => (
                 <div key={i} className="flex items-center gap-2 text-xs text-red-400">
                   <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
                   {flag}
@@ -312,6 +303,7 @@ export const MessageBubble = memo(function MessageBubble({
                   alt="AI-generated chart"
                   fill
                   className="object-contain p-2"
+                  unoptimized
                 />
               </div>
             </div>

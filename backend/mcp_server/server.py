@@ -52,7 +52,7 @@ from fastmcp import FastMCP
 
 # ── Config ────────────────────────────────────────────────────────────────────
 API_URL   = os.getenv("QUANTIVA_API_URL", "http://localhost:8000/api/v1")
-API_TOKEN = os.getenv("QUANTIVA_TOKEN",   "mock-token")
+API_TOKEN = os.getenv("QUANTIVA_TOKEN", "")
 
 mcp = FastMCP(
     name="Quantiva",
@@ -67,6 +67,8 @@ mcp = FastMCP(
 # ── HTTP client helper ────────────────────────────────────────────────────────
 
 def _headers() -> dict:
+    if not API_TOKEN or API_TOKEN == "mock-token":
+        raise ValueError("QUANTIVA_TOKEN must be a real access token from /auth/login")
     return {
         "Authorization": f"Bearer {API_TOKEN}",
         "Content-Type":  "application/json",
@@ -91,7 +93,6 @@ async def _get(path: str, params: dict | None = None) -> dict:
 @mcp.tool()
 async def search_documents(
     query: str,
-    user_id: str,
     doc_ids: list[str] | None = None,
     top_k: int = 5,
 ) -> str:
@@ -103,9 +104,8 @@ async def search_documents(
 
     Args:
         query:   Natural language search query.
-        user_id: The user whose document library to search.
         doc_ids: Optional list of specific document IDs to restrict the search.
-                 If omitted, searches all documents belonging to user_id.
+                  If omitted, searches the authenticated owner's documents.
         top_k:   Number of results to return (1–20, default 5).
 
     Returns:
@@ -114,7 +114,6 @@ async def search_documents(
     try:
         payload = {
             "query":   query,
-            "user_id": user_id,
             "doc_ids": doc_ids or [],
             "top_k":   min(max(top_k, 1), 20),
         }
@@ -162,7 +161,6 @@ async def search_documents(
 @mcp.tool()
 async def summarize_document(
     doc_id: str,
-    user_id: str,
     style: str = "concise",
 ) -> str:
     """
@@ -173,7 +171,6 @@ async def summarize_document(
 
     Args:
         doc_id:  The document ID to summarize (get from search_documents results).
-        user_id: The owner of the document.
         style:   Summary style — "concise" (3-5 sentences) or "detailed" (full outline).
 
     Returns:
@@ -200,7 +197,6 @@ async def summarize_document(
             {
                 "session_id": session_id,
                 "query":      f"Summarize this document. {style_instruction}",
-                "doc_ids":    [doc_id],
             },
         )
 
@@ -228,7 +224,6 @@ async def summarize_document(
 @mcp.tool()
 async def ask_question(
     question: str,
-    user_id: str,
     doc_ids: list[str] | None = None,
     session_id: str | None = None,
 ) -> str:
@@ -247,7 +242,6 @@ async def ask_question(
 
     Args:
         question:   The question to answer.
-        user_id:    The user whose documents to query.
         doc_ids:    Specific document IDs to restrict the search (optional).
         session_id: Reuse an existing session for conversational follow-up (optional).
 
@@ -259,13 +253,16 @@ async def ask_question(
         if not session_id:
             session = await _post("/chat/sessions", {"document_ids": doc_ids or []})
             session_id = session["session_id"]
+        elif doc_ids is not None:
+            existing = await _get(f"/chat/sessions/{session_id}")
+            if set(existing["document_ids"]) != set(doc_ids):
+                return json.dumps({"status": "error", "detail": "Document scope cannot override an existing session; create a new session"})
 
         result = await _post(
             "/chat/message",
             {
                 "session_id": session_id,
                 "query":      question,
-                "doc_ids":    doc_ids or [],
             },
         )
 

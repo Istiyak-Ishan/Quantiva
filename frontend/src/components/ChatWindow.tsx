@@ -116,20 +116,17 @@ export function ChatWindow() {
     currentSession,
     isStreaming,
     streamingMessage,
-    addMessage,
-    updateStreamingMessage,
-    finalizeMessage,
     abortStreaming,
   } = useChatStore();
 
-  const { documents, readyDocIds } = useDocumentStore();
+  const { readyDocIds } = useDocumentStore();
   const readyDocs = readyDocIds();
 
   const [input, setInput] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -164,19 +161,21 @@ export function ChatWindow() {
   const handleSend = useCallback(
     async (overrideInput?: string) => {
       const query = (overrideInput ?? input).trim();
-      if (!query || !currentSession || readyDocs.length === 0 || isStreaming) return;
+      const session = useChatStore.getState().currentSession;
+      if (!query || !session || useChatStore.getState().isStreaming) return;
 
       setInput('');
+      setError('');
       setIsConnecting(true);
 
       // Optimistic user message
-      addMessage({ role: 'user', content: query });
+      useChatStore.getState().addMessage({ role: 'user', content: query });
 
       // Close any existing SSE
       eventSourceRef.current?.close();
 
       try {
-        const es = streamMessage(currentSession, query, readyDocs);
+        const es = await streamMessage(session, query);
         eventSourceRef.current = es;
 
         es.onopen = () => setIsConnecting(false);
@@ -186,48 +185,46 @@ export function ChatWindow() {
           try {
             const data: StreamEventData = JSON.parse(e.data);
             if (!data.done) {
-              updateStreamingMessage(data.token);
+              if (data.token) {
+                useChatStore.getState().updateStreamingMessage(data.token);
+              }
             } else {
-              finalizeMessage(data.citations ?? [], data.confidence, data.chart_url);
+              useChatStore.getState().finalizeMessage(data.citations ?? [], data.confidence, data.chart_url, {
+                ...(data.answer !== undefined ? { content: data.answer } : {}),
+                guardrail_flags: data.guardrail_flags, cache_hit: data.cache_hit, cost_usd: data.cost_usd,
+              });
               es.close();
               eventSourceRef.current = null;
             }
           } catch {
-            // Fallback: treat raw data as a token
-            if (e.data === '[DONE]') {
-              finalizeMessage();
-              es.close();
-              eventSourceRef.current = null;
-            } else {
-              updateStreamingMessage(e.data + ' ');
-            }
+            useChatStore.getState().abortStreaming();
+            setError('The server returned an invalid stream. Please retry.');
+            es.close();
           }
         };
 
-        es.onerror = () => {
+        es.onerror = (event) => {
           setIsConnecting(false);
-          // If we already have streamed some content, finalize it
-          if (isStreaming || streamingMessage) {
-            finalizeMessage();
+          useChatStore.getState().abortStreaming();
+          let message = 'Connection interrupted. Please verify backend status and retry.';
+          if (event instanceof MessageEvent) {
+            try {
+              const data = JSON.parse(event.data);
+              message = typeof data.error === 'string' ? data.error : data.error?.error ?? message;
+            } catch { /* Keep the explicit connection error. */ }
           }
+          setError(message);
           es.close();
           eventSourceRef.current = null;
         };
       } catch {
         setIsConnecting(false);
-        abortStreaming();
+        useChatStore.getState().abortStreaming();
+        setError('Unable to open an authenticated chat stream. Please sign in again or retry.');
       }
     },
     [
       input,
-      currentSession,
-      readyDocs,
-      isStreaming,
-      streamingMessage,
-      addMessage,
-      updateStreamingMessage,
-      finalizeMessage,
-      abortStreaming,
     ],
   );
 
@@ -239,13 +236,14 @@ export function ChatWindow() {
   };
 
   const canSend =
-    input.trim().length > 0 && !!currentSession && readyDocs.length > 0 && !isStreaming && !isConnecting;
+    input.trim().length > 0 && !!currentSession && !isStreaming && !isConnecting;
 
   const showStreaming = isStreaming || isConnecting;
   const showTypingIndicator = isConnecting && !streamingMessage;
 
   return (
     <div className="flex flex-col h-full relative rounded-2xl glass overflow-hidden shadow-2xl">
+      {error && <p role="alert" className="p-3 text-sm text-red-400">{error}</p>}
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-800/60 bg-neutral-900/40">
         <div className="flex items-center gap-3">
@@ -257,8 +255,8 @@ export function ChatWindow() {
 
         <div className="flex items-center gap-2">
           {readyDocs.length === 0 ? (
-            <span className="badge-processing text-[11px] px-2.5 py-1 rounded-full">
-              Upload a document to start
+            <span className="badge-processing text-[11px] px-2.5 py-1 rounded-full text-neutral-400 bg-neutral-800/60 border border-neutral-700/50">
+              General Mode (Upload document to ground responses)
             </span>
           ) : (
             <span className="badge-ready text-[11px] px-2.5 py-1 rounded-full">
@@ -320,11 +318,11 @@ export function ChatWindow() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={readyDocs.length === 0 || isConnecting}
+            disabled={isConnecting}
             placeholder={
               readyDocs.length > 0
                 ? 'Ask anything about your documents… (Shift+Enter for newline)'
-                : 'Upload a document first…'
+                : 'Ask a question or upload a document in the sidebar…'
             }
             rows={1}
             className={cn(

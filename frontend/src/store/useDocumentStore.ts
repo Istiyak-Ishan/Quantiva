@@ -11,6 +11,7 @@ export interface Document {
   status: DocumentStatus;
   uploadProgress: number;       // 0–100 (upload byte progress via XHR)
   chunkCount?: number | null;   // populated once indexing finishes
+  failureReason?: string | null; // user-safe explanation for failed indexing
   addedAt: number;              // unix timestamp ms
 }
 
@@ -18,6 +19,12 @@ export interface Document {
 
 interface DocumentState {
   documents: Document[];
+
+  /** Set entire document list (e.g. hydrated from backend) */
+  setDocuments: (docs: Document[]) => void;
+
+  /** Fetch and hydrate documents from backend API */
+  fetchDocuments: () => Promise<void>;
 
   /** Add a new document (skips duplicates by id). */
   addDocument: (doc: Omit<Document, 'addedAt'>) => void;
@@ -28,6 +35,7 @@ interface DocumentState {
     status: DocumentStatus,
     progress?: number,
     chunkCount?: number | null,
+    failureReason?: string | null,
   ) => void;
 
   /** Remove a document from local state (does NOT call the API). */
@@ -47,6 +55,27 @@ export const useDocumentStore = create<DocumentState>()(
     (set, get) => ({
       documents: [],
 
+      setDocuments: (docs) => set({ documents: docs }, false, 'setDocuments'),
+
+      fetchDocuments: async () => {
+        try {
+          const { getDocuments } = await import('@/lib/api');
+          const serverDocs = await getDocuments();
+          const mappedDocs: Document[] = serverDocs.map((sd) => ({
+            id: String(sd.id),
+            filename: sd.filename,
+            status: (sd.status as DocumentStatus) || 'ready',
+            uploadProgress: 100,
+            chunkCount: sd.chunk_count,
+            failureReason: sd.failure_reason ?? null,
+            addedAt: new Date(sd.created_at).getTime() || Date.now(),
+          }));
+          set({ documents: mappedDocs }, false, 'fetchDocuments');
+        } catch {
+          // silently ignore if unauthenticated or network error
+        }
+      },
+
       addDocument: (doc) =>
         set(
           (state) => {
@@ -62,7 +91,7 @@ export const useDocumentStore = create<DocumentState>()(
           'addDocument',
         ),
 
-      updateStatus: (id, status, progress, chunkCount) =>
+      updateStatus: (id, status, progress, chunkCount, failureReason) =>
         set(
           (state) => ({
             documents: state.documents.map((doc) =>
@@ -72,6 +101,7 @@ export const useDocumentStore = create<DocumentState>()(
                     status,
                     uploadProgress: progress ?? doc.uploadProgress,
                     chunkCount: chunkCount !== undefined ? chunkCount : doc.chunkCount,
+                    failureReason: failureReason !== undefined ? failureReason : doc.failureReason,
                   }
                 : doc,
             ),

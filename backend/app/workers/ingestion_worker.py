@@ -1,96 +1,94 @@
+"""Task-owned async resources: no pooled connections survive asyncio.run()."""
 import asyncio
 import logging
-from sqlalchemy import update, select
+import uuid
+
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
+
+from app.config import settings
+from app.core.metrics import DOCS_INGESTED
 from app.workers.celery_app import celery_app
-from app.db.database import AsyncSessionLocal
+import app.models  # noqa: F401 - ensure all ORM models (e.g. User) are registered in Base.metadata
 from app.models.document import Document
 from app.models.chunk import Chunk
 from app.core.storage import get_file
 from app.services.ingestion.ingestion_service import process_document as process_file
 from app.services.retrieval.embedding_service import embedding_service
-from app.services.retrieval.vector_store import vector_store
+from app.services.retrieval.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
-async def _process_document_async(doc_id: str):
-    """Async helper to perform the database operations and orchestration."""
-    async with AsyncSessionLocal() as session:
-        # 1. Fetch document metadata
-        stmt = select(Document).where(Document.id == doc_id)
-        result = await session.execute(stmt)
-        doc = result.scalar_one_or_none()
-        
-        if not doc:
-            logger.error(f"Document {doc_id} not found in database.")
-            return
-            
-        try:
-            # 2. Fetch raw file bytes from S3/MinIO
-            logger.info(f"Fetching {doc.filename} from storage...")
-            file_bytes = get_file(doc.storage_path)
-            
-            # 3. Parse and chunk the document
-            logger.info(f"Parsing {doc.filename} ({doc.file_type})...")
-            chunks = process_file(str(doc.id), file_bytes, doc.file_type)
-            
-            if not chunks:
-                logger.warning(f"No chunks extracted from document {doc_id}")
-                stmt = update(Document).where(Document.id == doc_id).values(status="ready", chunk_count=0)
-                await session.execute(stmt)
-                await session.commit()
-                return
+_METRIC_TYPES = {
+    "application/pdf": "pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "text/csv": "csv",
+    "application/csv": "csv",
+    "text/plain": "txt",
+}
 
-            # 4. Embed chunks via Google text-embedding-004
-            logger.info(f"Embedding {len(chunks)} chunks...")
-            texts = [chunk["text"] for chunk in chunks]
-            
-            # Batch embeddings in groups of 100
-            embeddings = []
-            for i in range(0, len(texts), 100):
-                batch = texts[i:i+100]
-                batch_embs = embedding_service.embed_batch(batch)
-                embeddings.extend(batch_embs)
-                
-            # 5. Ensure Qdrant collection exists, then upsert
-            logger.info("Upserting vectors to Qdrant...")
-            await vector_store.create_collection()
-            qdrant_ids = await vector_store.upsert_chunks(chunks, embeddings, str(doc.id), str(doc.user_id))
-            
-            # 6. Save chunk metadata to Postgres
-            logger.info("Saving chunk metadata to Postgres...")
-            db_chunks = []
-            for i, (chunk, q_id) in enumerate(zip(chunks, qdrant_ids)):
-                db_chunks.append(
-                    Chunk(
-                        doc_id=doc.id,
-                        chunk_index=i,
-                        text_preview=chunk["text"][:200],  # Preview text
-                        page_number=chunk["metadata"].get("page"),
-                        chunk_type=chunk["metadata"].get("chunk_type", "text"),
-                        qdrant_id=q_id
+
+def _metric_file_type(mime: str) -> str:
+    return _METRIC_TYPES.get(mime, "other")
+
+
+async def _process_document_async(doc_id: str):
+    document_id = uuid.UUID(doc_id)
+    engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    store = VectorStore()
+    try:
+        async with sessions() as session:
+            # Held through ingestion: competing tasks and deletes cannot interleave.
+            doc = await session.scalar(select(Document).where(Document.id == document_id).with_for_update())
+            if doc is None or doc.status in {"ready", "deleting"}:
+                return
+            try:
+                file_bytes = await asyncio.to_thread(get_file, doc.storage_path)
+                chunks = await asyncio.to_thread(process_file, str(doc.id), file_bytes, doc.file_type)
+                if not chunks:
+                    raise ValueError("No readable content was extracted")
+                embeddings = []
+                for start in range(0, len(chunks), 100):
+                    embeddings.extend(await asyncio.to_thread(embedding_service.embed_batch, [c["text"] for c in chunks[start:start + 100]]))
+                await store.create_collection()
+                await store.delete_document(str(doc.id), user_id=str(doc.user_id))
+                qdrant_ids = await store.upsert_chunks(chunks, embeddings, str(doc.id), str(doc.user_id))
+                # Transactionally replace derived chunk rows on an explicit retry.
+                # Raw documents and existing collections are never deleted here.
+                await session.execute(delete(Chunk).where(Chunk.doc_id == document_id))
+                session.add_all([Chunk(doc_id=doc.id, chunk_index=i, text_preview=chunk["text"][:200], full_text=chunk["text"], page_number=chunk["metadata"].get("page"), chunk_type=chunk["metadata"].get("chunk_type", "text"), qdrant_id=uuid.UUID(qid)) for i, (chunk, qid) in enumerate(zip(chunks, qdrant_ids))])
+                doc.status = "ready"
+                doc.chunk_count = len(chunks)
+                doc.failure_reason = None
+                doc.processing_started_at = None
+                doc.metadata_json = {**(doc.metadata_json or {}), "embedding_model": settings.EMBEDDING_MODEL, "embedding_dimensions": settings.EMBEDDING_DIMENSIONS, "embedding_collection": store.collection_name}
+                await session.commit()
+                # Worker-process counter; exposed only with Prometheus multiprocess
+                # aggregation, never inferred by the API process.
+                DOCS_INGESTED.labels(file_type=_metric_file_type(doc.file_type)).inc()
+            except Exception:
+                logger.exception("Document ingestion failed for %s", document_id)
+                await session.rollback()
+                await session.execute(
+                    update(Document)
+                    .where(Document.id == document_id)
+                    .values(
+                        status="failed",
+                        failure_reason="Processing failed. Retry indexing.",
+                        processing_started_at=None,
                     )
                 )
-            session.add_all(db_chunks)
+                await session.commit()
+                # Celery records failure too; never report a successful task.
+                raise
+    finally:
+        await store.client.close()
+        await engine.dispose()
 
-            # 7. Update Document status
-            stmt = update(Document).where(Document.id == doc_id).values(
-                status="ready", 
-                chunk_count=len(chunks)
-            )
-            await session.execute(stmt)
-            await session.commit()
-            logger.info(f"Successfully processed document {doc_id} with {len(chunks)} chunks.")
-            
-        except Exception as e:
-            logger.error(f"Failed to process document {doc_id}: {str(e)}")
-            stmt = update(Document).where(Document.id == doc_id).values(status="failed")
-            await session.execute(stmt)
-            await session.commit()
 
-@celery_app.task(name="process_document")
+@celery_app.task(name="process_document", acks_late=True, reject_on_worker_lost=True)
 def process_document(doc_id: str):
-    """
-    Celery task to process the uploaded document.
-    """
     asyncio.run(_process_document_async(doc_id))
-

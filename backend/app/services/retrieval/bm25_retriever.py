@@ -1,5 +1,10 @@
+import re
 from rank_bm25 import BM25Okapi
 from typing import List, Dict, Any
+
+def tokenize(text: str) -> List[str]:
+    """Tokenize string into alphanumeric terms in lowercase."""
+    return re.findall(r'\w+', text.lower()) if text else []
 
 class BM25Retriever:
     def __init__(self):
@@ -9,10 +14,7 @@ class BM25Retriever:
     def build_index(self, doc_chunks: List[Dict[str, Any]]):
         """
         Builds an in-memory BM25 index from a list of chunks.
-        In a production scenario, you'd use a dedicated search engine (like ElasticSearch)
-        or Qdrant's native sparse vectors, but this works perfectly for prototype/local hybrid search.
-        
-        Tokenization happens here by simply splitting on whitespace and converting to lowercase.
+        Tokenization uses regex word matching for robust keyword extraction.
         """
         self.doc_chunks = doc_chunks
         if not doc_chunks:
@@ -20,7 +22,7 @@ class BM25Retriever:
             return
             
         tokenized_corpus = [
-            chunk["text"].lower().split(" ") for chunk in self.doc_chunks
+            tokenize(chunk.get("text", "")) for chunk in self.doc_chunks
         ]
         self.bm25 = BM25Okapi(tokenized_corpus)
 
@@ -32,7 +34,10 @@ class BM25Retriever:
         if not self.bm25:
             return []
 
-        tokenized_query = query.lower().split(" ")
+        tokenized_query = tokenize(query)
+        if not tokenized_query:
+            return []
+            
         doc_scores = self.bm25.get_scores(tokenized_query)
         
         # Combine chunks with their BM25 scores

@@ -1,0 +1,12 @@
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/.pytest_cache
+**/*.py[cod]
+Quantiva_Technical_Audit_Report.md
+quantiva_learn

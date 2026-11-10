@@ -22,9 +22,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useChatStore } from '@/store/useChatStore';
-import { getHistory, getSessions, deleteSession } from '@/lib/api';
+import { useDocumentStore } from '@/store/useDocumentStore';
+import { getHistory, getSessions, deleteSession, logout, errorMessage } from '@/lib/api';
 import { FileUploader } from '@/components/FileUploader';
 import { ChatWindow } from '@/components/ChatWindow';
 import {
@@ -56,18 +56,20 @@ interface SessionListProps {
 
 function SessionList({ sessions, currentSessionId, onDelete }: SessionListProps) {
   const router = useRouter();
+  const [error, setError] = useState('');
 
   const handleNew = async () => {
     try {
       const res = await createSession([]);
       router.push(`/chat/${res.session_id}`);
-    } catch {
-      router.push(`/chat/fallback-session-${Date.now()}`);
+    } catch (error) {
+      setError(errorMessage(error));
     }
   };
 
   return (
     <div className="flex flex-col gap-1">
+      {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
       <div className="flex items-center justify-between px-1 mb-1">
         <span className="text-[10px] font-semibold text-neutral-500 uppercase tracking-widest">
           Sessions
@@ -231,8 +233,16 @@ function Sidebar({ collapsed, onToggle, sessionId }: SidebarProps) {
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-neutral-800/60">
+        <button className="text-sm text-neutral-300" onClick={async () => {
+          try {
+            await logout();
+            useChatStore.setState({ messages: [], currentSession: null, isStreaming: false, streamingMessage: '' });
+            useDocumentStore.setState({ documents: [] });
+            router.replace('/login');
+          } catch (error) { window.alert(errorMessage(error)); }
+        }}>Sign out</button>
         <p className="text-[10px] text-neutral-600 text-center">
-          Powered by Gemini 1.5 Flash · Qdrant · FastAPI
+          Powered by Gemini · Qdrant · FastAPI
         </p>
       </div>
     </div>
@@ -243,40 +253,46 @@ function Sidebar({ collapsed, onToggle, sessionId }: SidebarProps) {
 
 export default function ChatPage() {
   const params = useParams();
+  const router = useRouter();
   const sessionId = params.sessionId as string;
 
   const { setSession, setMessages } = useChatStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  // Hydrate documents on mount
+  useEffect(() => {
+    useDocumentStore.getState().fetchDocuments();
+  }, []);
 
   // Set session in Zustand and load history from Redis
   useEffect(() => {
     if (!sessionId) return;
+
     setSession(sessionId);
 
-    const isFallback = sessionId.startsWith('fallback-');
-
-    if (isFallback) {
-      setMessages([]);
-      setLoading(false);
-      return;
-    }
-
+    let active = true;
     getHistory(sessionId)
       .then((history) => {
+        if (!active) return;
         const msgs = history.map((m) => ({
+          id: m.id,
           role: m.role,
           content: m.content,
           citations: m.citations,
           confidence: m.confidence,
           chart_url: m.chart_url,
-          timestamp: Date.now(),
+          guardrail_flags: m.guardrail_flags,
+          cache_hit: m.cache_hit,
+          timestamp: m.created_at ? Date.parse(m.created_at) : undefined,
         }));
         setMessages(msgs);
       })
-      .catch(() => setMessages([]))
-      .finally(() => setLoading(false));
-  }, [sessionId, setSession, setMessages]);
+      .catch((error) => { if (active) { setMessages([]); setError(errorMessage(error)); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [sessionId, setSession, setMessages, router]);
 
   return (
     <div className="flex h-screen bg-[#0a0a0a] p-3 gap-3 overflow-hidden">
@@ -297,7 +313,7 @@ export default function ChatPage() {
 
       {/* ── Main chat area ───────────────────────────────────────────────── */}
       <main className="flex-1 min-w-0 h-full" role="main" aria-label="Chat interface">
-        {loading ? (
+        {error ? <p role="alert" className="p-8 text-red-400">{error}</p> : loading ? (
           <div className="h-full flex items-center justify-center">
             <div className="flex items-center gap-3 text-neutral-500">
               <Loader2 className="w-5 h-5 animate-spin" />

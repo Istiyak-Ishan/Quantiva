@@ -1,4 +1,5 @@
 import re
+import asyncio
 import numpy as np
 from typing import List, Dict, Any
 from app.services.retrieval.embedding_service import embedding_service
@@ -22,15 +23,17 @@ class HallucinationChecker:
         Checks if every sentence in the answer is supported by the source chunks.
         """
         if not source_chunks or not answer:
-            return {"score": 1.0, "flagged_claims": [], "is_hallucinated": False}
+            return {"score": 0.0, "flagged_claims": [], "is_hallucinated": True}
 
         sentences = self._split_into_sentences(answer)
         if not sentences:
-            return {"score": 1.0, "flagged_claims": [], "is_hallucinated": False}
+            return {"score": 0.0, "flagged_claims": [], "is_hallucinated": True}
 
         # Embed all source chunks once
-        chunk_embeddings = embedding_service.embed_batch(source_chunks)
-        sentence_embeddings = embedding_service.embed_batch(sentences)
+        chunk_embeddings, sentence_embeddings = await asyncio.gather(
+            asyncio.to_thread(embedding_service.embed_batch, source_chunks, task_type="SEMANTIC_SIMILARITY"),
+            asyncio.to_thread(embedding_service.embed_batch, sentences, task_type="SEMANTIC_SIMILARITY"),
+        )
         
         supported_sentences = 0
         flagged_claims = []

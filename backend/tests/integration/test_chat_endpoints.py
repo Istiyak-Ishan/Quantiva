@@ -36,13 +36,12 @@ class TestChatMessage:
         session_id = sess.json()["session_id"]
 
         with (
-            patch("app.api.v1.chat.ReasoningAgent") as MockAgent,
+            patch("app.api.v1.chat.orchestrator.run", new_callable=AsyncMock, return_value=MOCK_AGENT_RESULT),
             patch("app.services.memory.session_memory.session_memory.load_history", new_callable=AsyncMock, return_value=[]),
             patch("app.services.memory.session_memory.session_memory.save_turn", new_callable=AsyncMock),
             patch("app.services.memory.semantic_cache.semantic_cache.get", new_callable=AsyncMock, return_value=None),
             patch("app.services.memory.semantic_cache.semantic_cache.set", new_callable=AsyncMock),
         ):
-            MockAgent.return_value.run = AsyncMock(return_value=MOCK_AGENT_RESULT)
             resp = await client.post(
                 "/api/v1/chat/message",
                 json={"session_id": session_id, "query": "What is Q3 revenue?"},
@@ -55,4 +54,3 @@ class TestChatMessage:
         assert "citations" in data
         assert "confidence" in data
         assert data["confidence"] > 0
-

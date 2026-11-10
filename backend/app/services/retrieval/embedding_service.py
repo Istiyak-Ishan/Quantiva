@@ -1,54 +1,56 @@
-import os
+"""Validated Gemini text embeddings. Provider failure cannot produce an index."""
+import math
+
 from google import genai
-from typing import List
+from google.genai import types
+
 from app.config import settings
+from app.services.llm.errors import EmbeddingError
+
 
 class EmbeddingService:
-    def __init__(self):
-        # We initialize the client using the API key from config
-        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        # text-embedding-004 outputs exactly 768 dimensions by default.
-        self.model_name = "text-embedding-004"
-        self.vector_size = 768
+    def __init__(self, client=None):
+        self.client = client
+        self.model_name = settings.EMBEDDING_MODEL
+        self.vector_size = settings.EMBEDDING_DIMENSIONS
 
-    def embed_text(self, text: str) -> List[float]:
-        """
-        Embeds a single string into a 768-dimensional float vector.
-        Input: Raw text string (e.g. "The Q3 revenue was $5M")
-        Output: [0.014, -0.051, 0.991, ...] (list of 768 floats)
-        """
-        try:
-            response = self.client.models.embed_content(
-                model=self.model_name,
-                contents=text
-            )
-            return response.embeddings[0].values
-        except Exception as e:
-            # Fallback for local testing without valid API key
-            import hashlib
-            seed = int(hashlib.md5(text.encode()).hexdigest(), 16)
-            import random
-            random.seed(seed)
-            return [random.uniform(-1, 1) for _ in range(self.vector_size)]
+    def _validate(self, response, expected):
+        vectors = [embedding.values for embedding in response.embeddings or []]
+        if len(vectors) != expected:
+            raise EmbeddingError()
+        normalized = []
+        for vector in vectors:
+            if vector is None or len(vector) != self.vector_size or not all(math.isfinite(v) for v in vector):
+                raise EmbeddingError()
+            norm = math.sqrt(sum(v * v for v in vector))
+            if not norm:
+                raise EmbeddingError()
+            normalized.append([v / norm for v in vector])
+        return normalized
 
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
-        """
-        Embeds a batch of strings for high throughput (max 100 per call is typical).
-        Input: List of text strings
-        Output: List of vectors, where each vector is a list of 768 floats.
-        """
+    def embed_batch(self, texts: list[str], *, task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
         if not texts:
             return []
-            
+        if self.model_name != "gemini-embedding-001":
+            # Other embedding APIs have different task/batch semantics; do not
+            # silently apply this adapter to an incompatible model.
+            raise EmbeddingError()
+        config = types.EmbedContentConfig(task_type=task_type, output_dimensionality=self.vector_size)
+        contents = [types.Content(parts=[types.Part.from_text(text=text)]) for text in texts]
         try:
-            response = self.client.models.embed_content(
-                model=self.model_name,
-                contents=texts
-            )
-            return [emb.values for emb in response.embeddings]
-        except Exception as e:
-            # Fallback for local testing without valid API key
-            import random
-            return [[random.uniform(-1, 1) for _ in range(self.vector_size)] for _ in texts]
+            if self.client is not None:
+                response = self.client.models.embed_content(model=self.model_name, contents=contents, config=config)
+            else:
+                with genai.Client(api_key=settings.GOOGLE_API_KEY, http_options=types.HttpOptions(timeout=settings.GOOGLE_TIMEOUT_MS)) as client:
+                    response = client.models.embed_content(model=self.model_name, contents=contents, config=config)
+            return self._validate(response, len(texts))
+        except EmbeddingError:
+            raise
+        except Exception as exc:
+            raise EmbeddingError() from exc
+
+    def embed_text(self, text: str, *, task_type: str = "RETRIEVAL_QUERY") -> list[float]:
+        return self.embed_batch([text], task_type=task_type)[0]
+
 
 embedding_service = EmbeddingService()

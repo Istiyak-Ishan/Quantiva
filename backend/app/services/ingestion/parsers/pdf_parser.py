@@ -7,38 +7,37 @@ def extract_text_blocks(file_bytes: bytes) -> List[Dict[str, Any]]:
     Returns a list of blocks, preserving page number and block structure.
     """
     blocks = []
-    # Open the document from bytes
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    
-    for page_num, page in enumerate(doc, start=1):
-        # Extract blocks (dict format). Each block contains lines and spans of text.
-        page_blocks = page.get_text("blocks")
-        page_has_text = False
-        
-        for block in page_blocks:
-            text = block[4].strip()
-            if text:
-                blocks.append({
-                    "text": text,
-                    "page": page_num,
-                    "block_type": "text"
-                })
-                page_has_text = True
-                
-        # If no standard text was extracted (e.g. scanned page/image-only PDF), attempt OCR
-        if not page_has_text:
-            try:
-                tp = page.get_textpage_ocr(language="eng")
-                ocr_text = page.get_text(textpage=tp).strip()
-                if ocr_text:
+    # Open the document from bytes with context manager to ensure C-level resources are freed
+    with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+        for page_num, page in enumerate(doc, start=1):
+            # Extract blocks (dict format). Each block contains lines and spans of text.
+            page_blocks = page.get_text("blocks")
+            page_has_text = False
+            
+            for block in page_blocks:
+                text = block[4].strip()
+                if text:
                     blocks.append({
-                        "text": ocr_text,
+                        "text": text,
                         "page": page_num,
-                        "block_type": "scanned_text"
+                        "block_type": "text"
                     })
-            except Exception:
-                # OCR unavailable or failed gracefully without raising
-                pass
+                    page_has_text = True
+                    
+            # If no standard text was extracted (e.g. scanned page/image-only PDF), attempt OCR
+            if not page_has_text:
+                try:
+                    tp = page.get_textpage_ocr(language="eng")
+                    ocr_text = page.get_text(textpage=tp).strip()
+                    if ocr_text:
+                        blocks.append({
+                            "text": ocr_text,
+                            "page": page_num,
+                            "block_type": "scanned_text"
+                        })
+                except Exception:
+                    # OCR unavailable or failed gracefully without raising
+                    pass
     return blocks
 
 def extract_tables(file_bytes: bytes) -> List[Dict[str, Any]]:
@@ -47,17 +46,16 @@ def extract_tables(file_bytes: bytes) -> List[Dict[str, Any]]:
     Extracts tables as markdown.
     """
     tables = []
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    
-    for page_num, page in enumerate(doc, start=1):
-        page_tables = page.find_tables()
-        for table in page_tables:
-            # Convert to markdown
-            md_table = table.to_markdown()
-            if md_table:
-                tables.append({
-                    "table_as_markdown": md_table,
-                    "page": page_num,
-                    "block_type": "table"
-                })
+    with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+        for page_num, page in enumerate(doc, start=1):
+            page_tables = page.find_tables()
+            for table in page_tables:
+                # Convert to markdown
+                md_table = table.to_markdown()
+                if md_table:
+                    tables.append({
+                        "table_as_markdown": md_table,
+                        "page": page_num,
+                        "block_type": "table"
+                    })
     return tables

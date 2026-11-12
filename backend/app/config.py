@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
     OLLAMA_TIMEOUT_SECONDS: float = 120.0
     OLLAMA_CONNECT_TIMEOUT_SECONDS: float = 5.0
+
+    # ── Cloud API keys for OpenAI-compatible and Anthropic adapters ───────────
+    OPENAI_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
     MAX_UPLOAD_BYTES: int = 25 * 1024 * 1024
     # Ingestion watchdog: a row may not stay "processing" forever when no
     # worker exists or the task dies without writing a terminal status.

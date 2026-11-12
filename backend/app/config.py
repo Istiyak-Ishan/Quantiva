@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSIONS: int = 768
     QDRANT_COLLECTION: str = "quantiva_v2"
     GOOGLE_TIMEOUT_MS: int = 60000
+
+    # ── Local-first Ollama provider ────────────────────────────────────────────
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_CHAT_MODEL: str = "llama3.2"
+    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+    OLLAMA_TIMEOUT_SECONDS: float = 120.0
+    OLLAMA_CONNECT_TIMEOUT_SECONDS: float = 5.0
     MAX_UPLOAD_BYTES: int = 25 * 1024 * 1024
     # Ingestion watchdog: a row may not stay "processing" forever when no
     # worker exists or the task dies without writing a terminal status.

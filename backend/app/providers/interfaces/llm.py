@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/providers/interfaces/llm.py
 ──────────────────────────────────────────────────────────────────────────────
 Abstract base class for all LLM provider implementations.

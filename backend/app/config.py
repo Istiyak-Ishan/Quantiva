@@ -1,8 +1,9 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+import os
 from pathlib import Path
-from pydantic import field_validator, model_validator
 from urllib.parse import urlsplit
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _backend_dir = Path(__file__).resolve().parent.parent
 _env_files = [
@@ -10,6 +11,14 @@ _env_files = [
     _backend_dir.parent / ".env",
     Path(".env")
 ]
+
+
+def _default_quantiva_data_dir() -> Path:
+    """Local-first default: %LOCALAPPDATA%/Quantiva on Windows, ~/.quantiva elsewhere."""
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "Quantiva"
+    return Path.home() / ".quantiva"
 
 
 class Settings(BaseSettings):
@@ -29,8 +38,8 @@ class Settings(BaseSettings):
     # ── Langfuse — LLM Observability ──────────────────────────────────────────
     # Optional: gracefully degrades if not set.  When all three vars are
     # present, the Langfuse callback handler is enabled automatically.
-    LANGFUSE_SECRET_KEY: Optional[str] = None
-    LANGFUSE_PUBLIC_KEY: Optional[str] = None
+    LANGFUSE_SECRET_KEY: str | None = None
+    LANGFUSE_PUBLIC_KEY: str | None = None
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
 
     # ── App metadata ──────────────────────────────────────────────────────────
@@ -55,6 +64,18 @@ class Settings(BaseSettings):
     # ── Cloud API keys for OpenAI-compatible and Anthropic adapters ───────────
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+    COHERE_API_KEY: str = ""
+    JINA_API_KEY: str = ""
+
+    # ── Local-first desktop data directory (all runtime state lives here) ─────
+    QUANTIVA_DATA_DIR: Path = _default_quantiva_data_dir()
+
+    # ── In-process local model providers (sentence-transformers) ─────────────
+    LOCAL_EMBEDDING_MODEL: str = "intfloat/multilingual-e5-small"
+    LOCAL_RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    MODEL_DEVICE: str = "auto"  # auto | cpu | cuda | cuda:N | mps
+    HF_OFFLINE: bool = False
+
     MAX_UPLOAD_BYTES: int = 25 * 1024 * 1024
     # Ingestion watchdog: a row may not stay "processing" forever when no
     # worker exists or the task dies without writing a terminal status.

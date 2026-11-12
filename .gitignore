@@ -60,6 +60,8 @@ node_modules/
 frontend/dist/
 frontend/build/
 .next/
+frontend/AGENTS.md
+frontend/CLAUDE.md
 
 # -----------------------
 # Logs & Databases

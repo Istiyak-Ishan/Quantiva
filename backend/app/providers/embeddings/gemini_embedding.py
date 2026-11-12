@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/providers/embeddings/gemini_embedding.py
 ──────────────────────────────────────────────────────────────────────────────
 Google Gemini text embedding provider adapter.
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Any
 
 from google import genai
 from google.genai import types
@@ -18,10 +17,7 @@ from google.genai import types
 from app.config import settings
 from app.providers.gemini_common import build_gemini_client, translate_gemini_error
 from app.providers.interfaces.embedding import EmbeddingProvider
-from app.providers.interfaces.exceptions import (
-    EmbeddingDimensionMismatchError,
-    ProviderError,
-)
+from app.providers.interfaces.exceptions import ProviderError
 from app.providers.interfaces.types import ConnectionTestResult
 
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/providers/gemini_common.py
 ──────────────────────────────────────────────────────────────────────────────
 Shared utilities for Google Gemini providers (LLM and Embeddings).
@@ -6,7 +6,6 @@ Shared utilities for Google Gemini providers (LLM and Embeddings).
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 from google import genai
 from google.genai import types

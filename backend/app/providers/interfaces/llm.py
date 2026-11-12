@@ -133,7 +133,7 @@ class LLMProvider(ABC):
         """
         # Satisfy mypy's AsyncIterator protocol; implementations must override.
         raise NotImplementedError  # pragma: no cover
-        yield  # type: ignore[misc]  # noqa: unreachable
+        yield  # type: ignore[misc]
 
     # ── Connectivity probe ────────────────────────────────────────────────────
 

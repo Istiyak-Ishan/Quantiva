@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/providers/llm/gemini.py
 ──────────────────────────────────────────────────────────────────────────────
 Google Gemini LLM provider adapter.
@@ -139,7 +139,7 @@ class GeminiLLMProvider(LLMProvider):
                 types.FunctionDeclaration(
                     name=td.name,
                     description=td.description,
-                    parameters=td.parameters_json_schema,
+                    parameters=td.parameters_json_schema,  # type: ignore[arg-type]
                 )
                 for td in tools
             ]

@@ -1,7 +1,11 @@
+import json
 import os
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from platformdirs import user_data_dir
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,12 +17,163 @@ _env_files = [
 ]
 
 
+@dataclass(frozen=True, slots=True)
+class LocalDataPaths:
+    """Canonical paths rooted under the configured Quantiva data directory."""
+
+    root: Path
+
+    @property
+    def database_dir(self) -> Path:
+        return self.root / "database"
+
+    @property
+    def database_file(self) -> Path:
+        return self.database_dir / "quantiva.db"
+
+    @property
+    def original_documents(self) -> Path:
+        return self.root / "documents" / "original"
+
+    @property
+    def processed_documents(self) -> Path:
+        return self.root / "documents" / "processed"
+
+    @property
+    def attachments(self) -> Path:
+        return self.root / "documents" / "attachments"
+
+    @property
+    def vector_store(self) -> Path:
+        return self.root / "vector_store"
+
+    @property
+    def embedding_models(self) -> Path:
+        return self.root / "models" / "embeddings"
+
+    @property
+    def reranker_models(self) -> Path:
+        return self.root / "models" / "rerankers"
+
+    @property
+    def exports(self) -> Path:
+        return self.root / "exports"
+
+    @property
+    def backups(self) -> Path:
+        return self.root / "backups"
+
+    @property
+    def logs(self) -> Path:
+        return self.root / "logs"
+
+    @property
+    def sandbox_scratch(self) -> Path:
+        return self.root / "sandbox_scratch"
+
+    @property
+    def required_directories(self) -> tuple[Path, ...]:
+        return (
+            self.database_dir,
+            self.original_documents,
+            self.processed_documents,
+            self.attachments,
+            self.vector_store,
+            self.embedding_models,
+            self.reranker_models,
+            self.exports,
+            self.backups,
+            self.logs,
+            self.sandbox_scratch,
+        )
+
+
+def bootstrap_config_path() -> Path:
+    """Return the fixed bootstrap file used before the main DB is available."""
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data).expanduser() / "Quantiva" / "bootstrap.json"
+    return Path(user_data_dir("Quantiva")).expanduser() / "bootstrap.json"
+
+
+def _bootstrap_data_dir(path: Path | None = None) -> Path | None:
+    config_path = path or bootstrap_config_path()
+    if not config_path.is_file():
+        return None
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    value = payload.get("data_dir") if isinstance(payload, dict) else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    configured = Path(value).expanduser()
+    if not configured.is_absolute():
+        configured = config_path.parent / configured
+    return configured.resolve()
+
+
+def resolve_quantiva_data_dir(
+    *,
+    bootstrap_path: Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Path:
+    """Resolve data root with env > bootstrap.json > platform default precedence."""
+    env = os.environ if environ is None else environ
+    override = env.get("QUANTIVA_DATA_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    configured = _bootstrap_data_dir(bootstrap_path)
+    if configured is not None:
+        return configured
+    return (bootstrap_path or bootstrap_config_path()).parent.resolve()
+
+
+def ensure_data_directories(data_dir: Path | str) -> LocalDataPaths:
+    """Create and validate Quantiva's complete local directory structure."""
+    paths = LocalDataPaths(Path(data_dir).expanduser().resolve())
+    paths.root.mkdir(parents=True, exist_ok=True)
+    for directory in paths.required_directories:
+        directory.mkdir(parents=True, exist_ok=True)
+        if not directory.is_dir():
+            raise OSError(f"Required Quantiva path is not a directory: {directory}")
+    paths.database_file.touch(exist_ok=True)
+
+    # Validate write access without leaving temporary artifacts behind.
+    probe = paths.root / ".quantiva-write-test"
+    try:
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise OSError(f"Quantiva data directory is not writable: {paths.root}") from exc
+    return paths
+
+
+class LocalDataDirectoryManager:
+    """Resolve, create, and validate the bootstrap-selected local data root."""
+
+    def __init__(
+        self,
+        *,
+        bootstrap_path: Path | None = None,
+        environ: Mapping[str, str] | None = None,
+    ) -> None:
+        self.bootstrap_path = bootstrap_path or bootstrap_config_path()
+        self.environ = dict(os.environ if environ is None else environ)
+
+    def resolve(self) -> Path:
+        return resolve_quantiva_data_dir(
+            bootstrap_path=self.bootstrap_path,
+            environ=self.environ,
+        )
+
+    def initialize(self) -> LocalDataPaths:
+        return ensure_data_directories(self.resolve())
+
+
 def _default_quantiva_data_dir() -> Path:
-    """Local-first default: %LOCALAPPDATA%/Quantiva on Windows, ~/.quantiva elsewhere."""
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        return Path(local_app_data) / "Quantiva"
-    return Path.home() / ".quantiva"
+    return resolve_quantiva_data_dir()
 
 
 class Settings(BaseSettings):
@@ -105,6 +260,23 @@ class Settings(BaseSettings):
     def embedding_collection(self) -> str:
         return f"{self.QDRANT_COLLECTION}_{self.EMBEDDING_MODEL.replace('-', '_')}_{self.EMBEDDING_DIMENSIONS}"
 
+    @property
+    def local_data_paths(self) -> LocalDataPaths:
+        return LocalDataPaths(self.QUANTIVA_DATA_DIR)
+
+    @property
+    def data_dir(self) -> Path:
+        """Lowercase compatibility alias used by desktop bootstrap code."""
+        return self.QUANTIVA_DATA_DIR
+
+    @property
+    def database_path(self) -> Path:
+        return self.local_data_paths.database_file
+
+    @property
+    def bootstrap_path(self) -> Path:
+        return bootstrap_config_path()
+
     @field_validator("GEMINI_CHAT_MODEL", "EMBEDDING_MODEL")
     @classmethod
     def reject_retired_models(cls, value: str) -> str:
@@ -138,6 +310,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def production_security(self):
+        self.QUANTIVA_DATA_DIR = ensure_data_directories(
+            self.QUANTIVA_DATA_DIR
+        ).root
         if self.APP_ENV in {"production", "staging"}:
             if len(self.SECRET_KEY) < 32 or any(word in self.SECRET_KEY.lower() for word in ("dev-secret", "change-in-prod", "your-dev", "replace-with", "changeme")):
                 raise ValueError("A strong, non-default SECRET_KEY is required outside development")

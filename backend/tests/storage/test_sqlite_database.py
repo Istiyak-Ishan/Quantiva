@@ -104,7 +104,9 @@ def test_all_twelve_tables_are_created(local_database):
     _data_dir, engine, _factory = local_database
 
     assert len(Base.metadata.tables) == 12
-    assert set(inspect(engine).get_table_names()) == EXPECTED_TABLES
+    table_names = set(inspect(engine).get_table_names())
+    assert EXPECTED_TABLES.issubset(table_names)
+    assert "document_chunks_fts" in table_names
 
 
 def test_wal_and_connection_pragmas_apply_on_every_connection(local_database):

@@ -72,8 +72,15 @@ def create_session_factory(bind: Engine) -> sessionmaker[Session]:
 
 
 def initialize_database(bind: Engine | None = None) -> None:
-    """Create all local tables idempotently."""
-    Base.metadata.create_all(bind or engine)
+    """Create all local tables plus the FTS5 sparse index idempotently."""
+    target = bind or engine
+    Base.metadata.create_all(target)
+    # Local import avoids coupling the ORM model module to the FTS repository
+    # while guaranteeing that every initialized database has its virtual table
+    # and synchronization triggers before ingestion begins.
+    from app.storage.sparse_store import initialize_fts5_schema
+
+    initialize_fts5_schema(target)
 
 
 # Concise compatibility alias for startup hooks and migration utilities.

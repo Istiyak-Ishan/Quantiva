@@ -38,7 +38,8 @@ ALLOWED_TYPES = [
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", # xlsx
     "text/csv", 
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document", # docx
-    "text/plain"
+    "text/plain",
+    "text/markdown", # md
 ]
 
 @router.post("/upload", response_model=DocumentUploadResponse)

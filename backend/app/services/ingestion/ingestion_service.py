@@ -86,8 +86,9 @@ def process_document(doc_id: str, file_bytes: bytes, file_type: str) -> List[Dic
     ]:
         raw_blocks = parse_docx(file_bytes)
         
-    elif file_type == "text/plain":
-        # Simple fallback for text files
+    elif file_type in ["text/plain", "text/markdown", "text/x-markdown"]:
+        # Simple fallback for text files.  The desktop ingestion pipeline
+        # (app/ingestion) adds Markdown-aware heading/table/code extraction.
         raw_blocks = [{"text": file_bytes.decode('utf-8', errors='ignore'), "page": 1, "block_type": "text"}]
         
     else:

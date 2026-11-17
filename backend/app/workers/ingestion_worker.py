@@ -27,6 +27,7 @@ _METRIC_TYPES = {
     "text/csv": "csv",
     "application/csv": "csv",
     "text/plain": "txt",
+    "text/markdown": "md",
 }
 
 

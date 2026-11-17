@@ -14,6 +14,8 @@ TYPES = {
     ".pdf": "application/pdf",
     ".csv": "text/csv",
     ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
@@ -57,7 +59,7 @@ async def read_validated_upload(file: UploadFile) -> tuple[bytes, str, str]:
         raise HTTPException(status_code=400, detail="Empty documents are not supported")
     if suffix == ".pdf" and not data.startswith(b"%PDF-"):
         raise HTTPException(status_code=400, detail="Invalid PDF signature")
-    if suffix in {".csv", ".txt"}:
+    if suffix in {".csv", ".txt", ".md", ".markdown"}:
         try:
             text = data.decode("utf-8-sig")
             if "\x00" in text:

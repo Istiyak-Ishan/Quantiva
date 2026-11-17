@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     HF_OFFLINE: bool = False
 
     MAX_UPLOAD_BYTES: int = 25 * 1024 * 1024
+    # OCR fallback for scanned PDFs. Tesseract is looked up in bundled vendor
+    # directories first, then on PATH; absence only adds warning metadata.
+    OCR_ENABLED: bool = True
+    OCR_TESSERACT_CMD: str | None = None
+    OCR_LANGUAGES: str = "eng"
+    OCR_DPI: int = 200
+    OCR_MIN_TEXT_CHARS: int = 30
     # Ingestion watchdog: a row may not stay "processing" forever when no
     # worker exists or the task dies without writing a terminal status.
     INGESTION_STALE_SECONDS: int = 600

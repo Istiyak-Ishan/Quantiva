@@ -29,6 +29,20 @@ from app.api.v1.retrieval import router as retrieval_router
 from app.api.v1.charts import router as charts_router
 from app.core.middleware import PrometheusMiddleware, SecurityHeadersMiddleware
 from app.core.application_context import get_application_context
+from app.jobs.indexing import KnowledgeBaseReindexJobHandler
+from app.jobs.ingestion import DocumentIngestionJobHandler
+from app.jobs.manager import LocalJobManager, configure_default_job_manager
+from app.providers.registry import EmbeddingConfiguration as ProviderEmbeddingConfiguration
+from app.storage.database import (
+    SessionLocal as LocalSessionLocal,
+    engine as local_database_engine,
+    initialize_database as initialize_local_database,
+)
+from app.storage.models import (
+    EmbeddingConfiguration as StoredEmbeddingConfiguration,
+    KnowledgeBase as StoredKnowledgeBase,
+)
+from app.storage.sparse_store import SQLiteSparseIndex
 from app.storage.vector_store import LocalVectorStore, VectorStoreManager
 from app.services.retrieval.vector_store import vector_store
 from app.core.rate_limiter import rate_limiter
@@ -59,17 +73,77 @@ async def lifespan(app: FastAPI):
     """
     application_context = get_application_context()
     vector_manager = VectorStoreManager(data_dir=settings.QUANTIVA_DATA_DIR)
+    local_job_manager = None
     application_context.startup()
     try:
+        initialize_local_database(local_database_engine)
         vector_manager.start()
         application_context.set_vector_client(vector_manager)
+        local_vector_store = LocalVectorStore(vector_manager)
+        local_sparse_store = SQLiteSparseIndex(local_database_engine)
+
+        def provider_from_config(config: StoredEmbeddingConfiguration):
+            return application_context.provider_registry.get_knowledge_base_embedding_provider(
+                ProviderEmbeddingConfiguration(
+                    provider=config.provider_type,
+                    model=config.model_name,
+                    dimensions=config.dimensions,
+                    base_url=config.base_url,
+                    batch_size=config.batch_size,
+                )
+            )
+
+        def provider_for_knowledge_base(knowledge_base_id: str):
+            with LocalSessionLocal() as session:
+                knowledge_base = session.get(StoredKnowledgeBase, knowledge_base_id)
+                if knowledge_base is None or not knowledge_base.embedding_config_id:
+                    raise KeyError(
+                        f"Knowledge base has no embedding configuration: {knowledge_base_id}"
+                    )
+                config = session.get(
+                    StoredEmbeddingConfiguration,
+                    knowledge_base.embedding_config_id,
+                )
+                if config is None:
+                    raise KeyError(knowledge_base.embedding_config_id)
+                session.expunge(config)
+            return provider_from_config(config)
+
+        local_job_manager = LocalJobManager(
+            LocalSessionLocal,
+            worker_count=2,
+            vector_store=local_vector_store,
+            sparse_store=local_sparse_store,
+        )
+        ingestion_handler = DocumentIngestionJobHandler(
+            LocalSessionLocal,
+            embedding_provider_resolver=provider_for_knowledge_base,
+            vector_store=local_vector_store,
+            sparse_store=local_sparse_store,
+            data_dir=settings.QUANTIVA_DATA_DIR,
+        )
+        reindex_handler = KnowledgeBaseReindexJobHandler(
+            LocalSessionLocal,
+            embedding_provider_resolver=provider_from_config,
+            vector_store=local_vector_store,
+        )
+        local_job_manager.register_handler(ingestion_handler.JOB_TYPE, ingestion_handler)
+        local_job_manager.register_handler(reindex_handler.JOB_TYPE, reindex_handler)
+        configure_default_job_manager(local_job_manager)
+        await local_job_manager.start()
+
         app.state.vector_store_manager = vector_manager
-        app.state.local_vector_store = LocalVectorStore(vector_manager)
+        app.state.local_vector_store = local_vector_store
+        app.state.local_sparse_store = local_sparse_store
+        app.state.local_job_manager = local_job_manager
         yield
     finally:
+        if local_job_manager is not None:
+            await local_job_manager.stop(timeout_seconds=5.0)
         # ApplicationContext owns the manager and invokes its idempotent close.
         application_context.shutdown()
         vector_manager.close()
+        local_database_engine.dispose()
         # Gracefully drain migration-era cloud service clients.
         await engine.dispose()
         await vector_store.client.close()

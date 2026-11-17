@@ -323,10 +323,14 @@ class LocalVectorStore(VectorStoreRepository):
             raise ValueError("One upsert batch may contain only one knowledge base")
         knowledge_base_id = next(iter(knowledge_base_ids))
         expected_collection = self.collection_name(knowledge_base_id)
-        if collection_name != expected_collection:
+        is_shadow_collection = collection_name.startswith(
+            f"{expected_collection}_reindex_"
+        )
+        if collection_name != expected_collection and not is_shadow_collection:
             raise ValueError(
                 f"Knowledge base '{knowledge_base_id}' must use collection "
-                f"'{expected_collection}', not '{collection_name}'"
+                f"'{expected_collection}' (or its temporary reindex shadow), "
+                f"not '{collection_name}'"
             )
 
         declared_dimensions = self._index_dimensions(metadata, index_metadata)

@@ -382,12 +382,15 @@ class ProcessingJob(Base):
         index=True,
     )
     status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="queued", index=True
+        String(32), nullable=False, default="PENDING", index=True
     )
     stage: Mapped[str | None] = mapped_column(String(64))
     progress_percent: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     message: Mapped[str | None] = mapped_column(Text)
     error_details: Mapped[str | None] = mapped_column(Text)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

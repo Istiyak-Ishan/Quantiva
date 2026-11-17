@@ -75,6 +75,20 @@ def initialize_database(bind: Engine | None = None) -> None:
     """Create all local tables plus the FTS5 sparse index idempotently."""
     target = bind or engine
     Base.metadata.create_all(target)
+    # ``create_all`` does not add columns to an existing desktop database.
+    # Keep this additive bootstrap migration idempotent for P3.5 upgrades.
+    with target.begin() as connection:
+        processing_job_columns = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                "PRAGMA table_info(processing_jobs)"
+            ).fetchall()
+        }
+        if "payload_json" not in processing_job_columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE processing_jobs "
+                "ADD COLUMN payload_json JSON NOT NULL DEFAULT '{}'"
+            )
     # Local import avoids coupling the ORM model module to the FTS repository
     # while guaranteeing that every initialized database has its virtual table
     # and synchronization triggers before ingestion begins.

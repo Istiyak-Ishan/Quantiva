@@ -25,6 +25,8 @@ from app.providers.interfaces.embedding import EmbeddingProvider
 from app.providers.interfaces.llm import LLMProvider
 from app.providers.interfaces.reranker import RerankerProvider
 from app.providers.registry import ProviderRegistry
+from app.storage.file_store import LocalFileStore
+from app.storage.local_cache import LocalCache
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,8 @@ class ApplicationContext:
         # Singletons
         self._provider_registry = ProviderRegistry(self._settings)
         self._vector_client: Any | None = None
+        self._file_store: LocalFileStore | None = None
+        self._local_cache: LocalCache | None = None
 
     @property
     def settings(self) -> Settings:
@@ -66,6 +70,26 @@ class ApplicationContext:
     def get_reranker_provider(self) -> RerankerProvider:
         """Return the active RerankerProvider from the registry."""
         return self._provider_registry.get_reranker_provider()
+
+    # ── Local File Store & Cache Accessors ────────────────────────────────────
+
+    def get_file_store(self) -> LocalFileStore:
+        """Return the singleton local filesystem storage manager."""
+        with self._lock:
+            if self._file_store is None:
+                self._file_store = LocalFileStore(self._settings.QUANTIVA_DATA_DIR)
+            return self._file_store
+
+    def get_local_cache(self) -> LocalCache:
+        """Return the singleton thread-safe local cache."""
+        with self._lock:
+            if self._local_cache is None:
+                sqlite_path = self._settings.local_data_paths.database_dir / "cache.db"
+                self._local_cache = LocalCache(
+                    sqlite_path=sqlite_path,
+                    persist_to_sqlite=True,
+                )
+            return self._local_cache
 
     # ── Vector Store Lifecycle (Invariant 5) ──────────────────────────────────
 
@@ -132,6 +156,16 @@ def get_application_context() -> ApplicationContext:
 def get_provider_registry() -> ProviderRegistry:
     """Convenience helper returning the global ProviderRegistry."""
     return get_application_context().provider_registry
+
+
+def get_file_store() -> LocalFileStore:
+    """Convenience helper returning the global LocalFileStore."""
+    return get_application_context().get_file_store()
+
+
+def get_local_cache() -> LocalCache:
+    """Convenience helper returning the global LocalCache."""
+    return get_application_context().get_local_cache()
 
 
 def reset_application_context() -> None:

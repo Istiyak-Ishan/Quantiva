@@ -2,6 +2,8 @@
 from app.core.application_context import (
     ApplicationContext,
     get_application_context,
+    get_file_store,
+    get_local_cache,
     get_provider_registry,
     reset_application_context,
 )
@@ -31,6 +33,8 @@ __all__ = [
     "VectorStoreDenseIndexer",
     "format_sse",
     "get_application_context",
+    "get_file_store",
+    "get_local_cache",
     "get_provider_registry",
     "reset_application_context",
 ]

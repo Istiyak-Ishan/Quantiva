@@ -28,6 +28,8 @@ from app.api.v1.metrics_endpoint import router as metrics_router
 from app.api.v1.retrieval import router as retrieval_router
 from app.api.v1.charts import router as charts_router
 from app.core.middleware import PrometheusMiddleware, SecurityHeadersMiddleware
+from app.core.application_context import get_application_context
+from app.storage.vector_store import LocalVectorStore, VectorStoreManager
 from app.services.retrieval.vector_store import vector_store
 from app.core.rate_limiter import rate_limiter
 from app.core.storage import s3_client, BUCKET_NAME
@@ -52,17 +54,29 @@ api_v1_router.include_router(charts_router)
 async def lifespan(app: FastAPI):
     """
     Application lifespan context manager.
-    Startup:  nothing to do (connections are lazily opened per-request).
-    Shutdown: dispose the SQLAlchemy engine connection pool.
+    Startup: acquire the one embedded-Qdrant directory lock for this process.
+    Shutdown: close embedded Qdrant and all legacy migration-era clients.
     """
-    yield
-    # Gracefully drain the SQLAlchemy connection pool
-    await engine.dispose()
-    await vector_store.client.close()
-    await rate_limiter.client.aclose()
-    await session_memory.client.aclose()
-    await semantic_cache.client.aclose()
-    s3_client.close()
+    application_context = get_application_context()
+    vector_manager = VectorStoreManager(data_dir=settings.QUANTIVA_DATA_DIR)
+    application_context.startup()
+    try:
+        vector_manager.start()
+        application_context.set_vector_client(vector_manager)
+        app.state.vector_store_manager = vector_manager
+        app.state.local_vector_store = LocalVectorStore(vector_manager)
+        yield
+    finally:
+        # ApplicationContext owns the manager and invokes its idempotent close.
+        application_context.shutdown()
+        vector_manager.close()
+        # Gracefully drain migration-era cloud service clients.
+        await engine.dispose()
+        await vector_store.client.close()
+        await rate_limiter.client.aclose()
+        await session_memory.client.aclose()
+        await semantic_cache.client.aclose()
+        s3_client.close()
 
 # ── App ───────────────────────────────────────────────────────────────────────
 

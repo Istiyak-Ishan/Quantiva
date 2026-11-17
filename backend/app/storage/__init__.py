@@ -3,6 +3,14 @@
 Concrete adapters (embedded Qdrant/LanceDB, SQLite FTS5, etc.) live outside
 this package and are injected into the retrieval pipeline.
 """
+from app.storage.backup import (
+    CURRENT_SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
+    create_backup,
+    migrate_data_directory,
+    restore_backup,
+    verify_backup_archive,
+)
 from app.storage.file_store import (
     DEFAULT_CHUNK_SIZE,
     LocalFileStore,
@@ -25,10 +33,12 @@ from app.storage.local_cache import (
 )
 
 __all__ = [
+    "CURRENT_SCHEMA_VERSION",
     "CollectionInfo",
     "DEFAULT_CHUNK_SIZE",
     "LocalCache",
     "LocalFileStore",
+    "SUPPORTED_SCHEMA_VERSIONS",
     "SearchHit",
     "SparseIndexRepository",
     "SparseSearchResult",
@@ -36,7 +46,11 @@ __all__ = [
     "VectorSearchResult",
     "VectorStoreRepository",
     "WINDOWS_RESERVED_NAMES",
+    "create_backup",
     "get_local_cache",
+    "migrate_data_directory",
     "reset_local_cache",
+    "restore_backup",
     "sanitize_filename",
+    "verify_backup_archive",
 ]

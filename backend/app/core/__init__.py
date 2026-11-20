@@ -7,24 +7,19 @@ from app.core.application_context import (
     get_provider_registry,
     reset_application_context,
 )
-from app.core.orchestrator import (
-    DEFAULT_DIRECT_RAG_SYSTEM_PROMPT,
-    OrchestratedDataAnalystAgent,
-    OrchestratorMode,
-    RAGOrchestrator,
-    RAGResponse,
-    SparseIndexIndexer,
-    StageType,
-    StreamingThinkParser,
-    VectorStoreDenseIndexer,
-    format_sse,
-)
-
 from app.core.hardware import (
     GPUInfo,
     HardwareInspector,
     HardwareProfile,
     ModelTierRecommendation,
+)
+from app.core.kb_archive import (
+    KBArchiveError,
+    KBArchiveValidationError,
+    export_knowledge_base,
+    export_knowledge_base_async,
+    import_knowledge_base,
+    import_knowledge_base_async,
 )
 from app.core.knowledge_bases import (
     DocumentSummary,
@@ -43,17 +38,31 @@ from app.core.model_studio import (
     get_model_studio_service,
     reset_model_studio_service,
 )
+from app.core.orchestrator import (
+    DEFAULT_DIRECT_RAG_SYSTEM_PROMPT,
+    OrchestratedDataAnalystAgent,
+    OrchestratorMode,
+    RAGOrchestrator,
+    RAGResponse,
+    SparseIndexIndexer,
+    StageType,
+    StreamingThinkParser,
+    VectorStoreDenseIndexer,
+    format_sse,
+)
 
 __all__ = [
+    "DEFAULT_DIRECT_RAG_SYSTEM_PROMPT",
     "AffectedKnowledgeBase",
     "ApplicationContext",
-    "DEFAULT_DIRECT_RAG_SYSTEM_PROMPT",
     "DocumentSummary",
     "DuplicateDocumentError",
     "EmbeddingImpactResult",
     "GPUInfo",
     "HardwareInspector",
     "HardwareProfile",
+    "KBArchiveError",
+    "KBArchiveValidationError",
     "KnowledgeBaseDetails",
     "KnowledgeBaseService",
     "KnowledgeBaseSummary",
@@ -68,6 +77,8 @@ __all__ = [
     "StageType",
     "StreamingThinkParser",
     "VectorStoreDenseIndexer",
+    "export_knowledge_base",
+    "export_knowledge_base_async",
     "format_sse",
     "get_application_context",
     "get_file_store",
@@ -75,6 +86,8 @@ __all__ = [
     "get_local_cache",
     "get_model_studio_service",
     "get_provider_registry",
+    "import_knowledge_base",
+    "import_knowledge_base_async",
     "reset_application_context",
     "reset_knowledge_base_service",
     "reset_model_studio_service",

@@ -536,6 +536,61 @@ class LocalVectorStore(VectorStoreRepository):
             lambda client: self._collection_info_sync(client, collection_name)
         )
 
+    async def scroll_vectors(
+        self,
+        collection_name: str,
+        *,
+        batch_size: int = 256,
+        with_payload: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Stream every point of a collection out as plain Python records.
+
+        Used by portable Knowledge Base export so pre-computed embeddings can
+        travel with the archive and be restored without re-embedding.  Missing
+        collections return an empty list rather than raising, matching the
+        delete/no-op conventions of this repository.
+        """
+        if not collection_name.strip():
+            raise ValueError("collection_name is required")
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
+
+        def operation(client: QdrantClient) -> list[dict[str, Any]]:
+            if not client.collection_exists(collection_name):
+                return []
+            records: list[dict[str, Any]] = []
+            offset: Any = None
+            while True:
+                points, offset = client.scroll(
+                    collection_name=collection_name,
+                    limit=int(batch_size),
+                    offset=offset,
+                    with_payload=with_payload,
+                    with_vectors=True,
+                )
+                for point in points:
+                    raw_vector = point.vector
+                    if isinstance(raw_vector, Mapping):
+                        raw_vector = next(iter(raw_vector.values()), None)
+                    payload = dict(point.payload or {}) if with_payload else {}
+                    records.append(
+                        {
+                            "point_id": str(point.id),
+                            "chunk_id": (
+                                str(payload["chunk_id"])
+                                if payload.get("chunk_id") is not None
+                                else None
+                            ),
+                            "payload": payload,
+                            "vector": [float(value) for value in (raw_vector or [])],
+                        }
+                    )
+                if offset is None:
+                    break
+            return records
+
+        return await self._run(operation)
+
 
 __all__ = [
     "LocalVectorStore",

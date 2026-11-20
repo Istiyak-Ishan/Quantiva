@@ -20,9 +20,20 @@ from app.core.orchestrator import (
     format_sse,
 )
 
+from app.core.hardware import (
+    GPUInfo,
+    HardwareInspector,
+    HardwareProfile,
+    ModelTierRecommendation,
+)
+
 __all__ = [
     "ApplicationContext",
     "DEFAULT_DIRECT_RAG_SYSTEM_PROMPT",
+    "GPUInfo",
+    "HardwareInspector",
+    "HardwareProfile",
+    "ModelTierRecommendation",
     "OrchestratedDataAnalystAgent",
     "OrchestratorMode",
     "RAGOrchestrator",

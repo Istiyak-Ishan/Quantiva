@@ -4,5 +4,19 @@ from app.security.sandbox import (
     SandboxResult,
     SandboxValidationError,
 )
+from app.security.credentials import (
+    CredentialManager,
+    get_credential_manager,
+    reset_credential_manager,
+    mask_api_key,
+)
 
-__all__ = ["LocalPythonSandbox", "SandboxResult", "SandboxValidationError"]
+__all__ = [
+    "CredentialManager",
+    "LocalPythonSandbox",
+    "SandboxResult",
+    "SandboxValidationError",
+    "get_credential_manager",
+    "mask_api_key",
+    "reset_credential_manager",
+]

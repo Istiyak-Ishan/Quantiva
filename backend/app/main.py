@@ -27,6 +27,9 @@ from app.api.v1.eval import router as eval_router
 from app.api.v1.metrics_endpoint import router as metrics_router
 from app.api.v1.retrieval import router as retrieval_router
 from app.api.v1.charts import router as charts_router
+from app.api.routes.models import router as models_router
+from app.api.routes.settings import router as settings_router
+from app.api.routes.system import router as system_router
 from app.core.middleware import PrometheusMiddleware, SecurityHeadersMiddleware
 from app.core.application_context import get_application_context
 from app.jobs.indexing import KnowledgeBaseReindexJobHandler
@@ -61,6 +64,9 @@ api_v1_router.include_router(chat_router,      tags=["chat"])
 api_v1_router.include_router(eval_router,      tags=["eval"])
 api_v1_router.include_router(retrieval_router)
 api_v1_router.include_router(charts_router)
+api_v1_router.include_router(models_router, prefix="/models", tags=["Models"])
+api_v1_router.include_router(settings_router, prefix="/settings", tags=["Settings"])
+api_v1_router.include_router(system_router, prefix="/system", tags=["System"])
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 

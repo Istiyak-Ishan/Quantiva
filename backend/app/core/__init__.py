@@ -26,14 +26,26 @@ from app.core.hardware import (
     HardwareProfile,
     ModelTierRecommendation,
 )
+from app.core.model_studio import (
+    AffectedKnowledgeBase,
+    EmbeddingImpactResult,
+    ModelStudioService,
+    OllamaDetectionResult,
+    get_model_studio_service,
+    reset_model_studio_service,
+)
 
 __all__ = [
+    "AffectedKnowledgeBase",
     "ApplicationContext",
     "DEFAULT_DIRECT_RAG_SYSTEM_PROMPT",
+    "EmbeddingImpactResult",
     "GPUInfo",
     "HardwareInspector",
     "HardwareProfile",
+    "ModelStudioService",
     "ModelTierRecommendation",
+    "OllamaDetectionResult",
     "OrchestratedDataAnalystAgent",
     "OrchestratorMode",
     "RAGOrchestrator",
@@ -46,6 +58,8 @@ __all__ = [
     "get_application_context",
     "get_file_store",
     "get_local_cache",
+    "get_model_studio_service",
     "get_provider_registry",
     "reset_application_context",
+    "reset_model_studio_service",
 ]

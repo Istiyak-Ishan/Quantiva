@@ -26,6 +26,15 @@ from app.core.hardware import (
     HardwareProfile,
     ModelTierRecommendation,
 )
+from app.core.knowledge_bases import (
+    DocumentSummary,
+    DuplicateDocumentError,
+    KnowledgeBaseDetails,
+    KnowledgeBaseService,
+    KnowledgeBaseSummary,
+    get_knowledge_base_service,
+    reset_knowledge_base_service,
+)
 from app.core.model_studio import (
     AffectedKnowledgeBase,
     EmbeddingImpactResult,
@@ -39,10 +48,15 @@ __all__ = [
     "AffectedKnowledgeBase",
     "ApplicationContext",
     "DEFAULT_DIRECT_RAG_SYSTEM_PROMPT",
+    "DocumentSummary",
+    "DuplicateDocumentError",
     "EmbeddingImpactResult",
     "GPUInfo",
     "HardwareInspector",
     "HardwareProfile",
+    "KnowledgeBaseDetails",
+    "KnowledgeBaseService",
+    "KnowledgeBaseSummary",
     "ModelStudioService",
     "ModelTierRecommendation",
     "OllamaDetectionResult",
@@ -57,9 +71,11 @@ __all__ = [
     "format_sse",
     "get_application_context",
     "get_file_store",
+    "get_knowledge_base_service",
     "get_local_cache",
     "get_model_studio_service",
     "get_provider_registry",
     "reset_application_context",
+    "reset_knowledge_base_service",
     "reset_model_studio_service",
 ]

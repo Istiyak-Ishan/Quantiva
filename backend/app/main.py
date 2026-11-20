@@ -30,6 +30,9 @@ from app.api.v1.charts import router as charts_router
 from app.api.routes.models import router as models_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.system import router as system_router
+from app.api.routes.knowledge_bases import router as desktop_kb_router
+from app.api.routes.documents import router as desktop_documents_router
+from app.api.routes.chat import router as desktop_chat_router
 from app.core.middleware import PrometheusMiddleware, SecurityHeadersMiddleware
 from app.core.application_context import get_application_context
 from app.jobs.indexing import KnowledgeBaseReindexJobHandler
@@ -59,11 +62,14 @@ from fastapi.responses import JSONResponse
 
 api_v1_router = APIRouter(prefix="/api/v1")
 api_v1_router.include_router(auth_router,      tags=["auth"])
+api_v1_router.include_router(desktop_documents_router)
 api_v1_router.include_router(documents_router, tags=["documents"])
 api_v1_router.include_router(chat_router,      tags=["chat"])
 api_v1_router.include_router(eval_router,      tags=["eval"])
 api_v1_router.include_router(retrieval_router)
 api_v1_router.include_router(charts_router)
+api_v1_router.include_router(desktop_kb_router)
+api_v1_router.include_router(desktop_chat_router)
 api_v1_router.include_router(models_router, prefix="/models", tags=["Models"])
 api_v1_router.include_router(settings_router, prefix="/settings", tags=["Settings"])
 api_v1_router.include_router(system_router, prefix="/system", tags=["System"])

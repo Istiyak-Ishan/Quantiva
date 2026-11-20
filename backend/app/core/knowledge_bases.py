@@ -186,6 +186,15 @@ class KnowledgeBaseService:
         self.file_store = file_store or LocalFileStore()
         self.job_manager = job_manager
 
+    @property
+    def current_job_manager(self) -> LocalJobManager | None:
+        if self.job_manager is not None:
+            return self.job_manager
+        try:
+            return get_local_job_manager()
+        except RuntimeError:
+            return None
+
     # ── Knowledge Base Lifecycle ──────────────────────────────────────────────
 
     async def create_knowledge_base(
@@ -468,10 +477,11 @@ class KnowledgeBaseService:
                 )
             ).all()
 
-        if self.job_manager is not None:
+        mgr = self.current_job_manager
+        if mgr is not None:
             for job_id in active_jobs:
                 try:
-                    await self.job_manager.cancel(job_id)
+                    await mgr.cancel(job_id)
                 except Exception:
                     logger.debug("Failed cancelling job %s during KB deletion", job_id)
 
@@ -613,12 +623,13 @@ class KnowledgeBaseService:
             session.expunge(doc)
 
         # Enqueue document ingestion job
-        if self.job_manager is not None:
+        mgr = self.current_job_manager
+        if mgr is not None:
             try:
                 await submit_document_ingestion_job(
                     document_id=doc_id,
                     knowledge_base_id=knowledge_base_id,
-                    manager=self.job_manager,
+                    manager=mgr,
                 )
             except Exception as exc:
                 logger.warning(
@@ -653,10 +664,11 @@ class KnowledgeBaseService:
             ).all()
 
         # 1. Cancel active jobs
-        if self.job_manager is not None:
+        mgr = self.current_job_manager
+        if mgr is not None:
             for job_id in active_jobs:
                 try:
-                    await self.job_manager.cancel(job_id)
+                    await mgr.cancel(job_id)
                 except Exception:
                     logger.debug("Failed cancelling job %s during doc deletion", job_id)
 
@@ -809,7 +821,7 @@ class KnowledgeBaseService:
         job_id = await submit_knowledge_base_reindex_job(
             knowledge_base_id=knowledge_base_id,
             new_embedding_config_id=target_config_id,
-            manager=self.job_manager,
+            manager=self.current_job_manager,
         )
         logger.info(
             "Submitted reindex job %s for knowledge base %s with embedding config %s",
@@ -916,23 +928,13 @@ _global_kb_service_lock = threading.RLock()
 _global_kb_service: KnowledgeBaseService | None = None
 
 
-def get_knowledge_base_service(
-    session_factory: sessionmaker[Session] | None = None,
-    vector_store: LocalVectorStore | None = None,
-    file_store: LocalFileStore | None = None,
-    job_manager: LocalJobManager | None = None,
-) -> KnowledgeBaseService:
+def get_knowledge_base_service() -> KnowledgeBaseService:
     """Return the thread-safe global KnowledgeBaseService singleton."""
     global _global_kb_service
     if _global_kb_service is None:
         with _global_kb_service_lock:
             if _global_kb_service is None:
-                _global_kb_service = KnowledgeBaseService(
-                    session_factory=session_factory,
-                    vector_store=vector_store,
-                    file_store=file_store,
-                    job_manager=job_manager,
-                )
+                _global_kb_service = KnowledgeBaseService()
     return _global_kb_service
 
 

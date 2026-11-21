@@ -334,7 +334,7 @@ function ChatPageContent() {
   }, [sessionId, setSession, setMessages, router]);
 
   return (
-    <div className="flex h-screen bg-[#0a0a0a] p-3 gap-3 overflow-hidden">
+    <div className="flex h-full bg-[#0a0a0a] p-3 gap-3 overflow-hidden">
       {/* ── Sidebar ─────────────────────────────────────────────────────── */}
       <aside
         className={cn(
@@ -377,7 +377,7 @@ export default function ChatPage() {
   return (
     <Suspense
       fallback={
-        <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-neutral-500">
+        <div className="h-full bg-[#0a0a0a] flex items-center justify-center text-neutral-500">
           <div className="flex items-center gap-3">
             <Loader2 className="w-5 h-5 animate-spin" />
             <span className="text-sm">Loading workspace…</span>

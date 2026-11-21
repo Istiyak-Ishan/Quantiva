@@ -57,7 +57,7 @@ export function isTauriDesktop(): boolean {
 /**
  * Safely invokes a Tauri IPC command via the internal Tauri runtime bridge.
  */
-async function invokeTauriCommand<T>(
+export async function invokeTauriCommand<T>(
   command: string,
   args: Record<string, unknown> = {},
 ): Promise<T> {

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import axios from 'axios';
 import { getCurrentUser } from '@/lib/api';
 import { isTauriDesktop } from '@/lib/api-client';
+import { BackendStartupGate } from '@/components/system/BackendStartupGate';
+import { AppShell } from '@/components/layout/AppShell';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>(() =>
@@ -36,7 +38,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   if (status !== 'ready') {
     return (
-      <main className="p-8 text-neutral-300" role="status">
+      <main className="flex h-screen items-center justify-center bg-[#070709] p-8 text-neutral-300" role="status">
         {status === 'error'
           ? 'Unable to verify your session. Please reload to retry.'
           : 'Verifying your session…'}
@@ -44,5 +46,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  return children;
+  return (
+    <BackendStartupGate>
+      <AppShell>{children}</AppShell>
+    </BackendStartupGate>
+  );
 }

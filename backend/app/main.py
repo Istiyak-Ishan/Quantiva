@@ -14,6 +14,7 @@ Wires together:
 
 from contextlib import asynccontextmanager
 import asyncio
+import os
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -183,16 +184,31 @@ app = FastAPI(
 # 1. Prometheus — MUST be added before CORS so it sees all requests
 app.add_middleware(PrometheusMiddleware)
 
-# 2. CORS — allow frontend origin; tighten in production
+# 2. Desktop security — when QUANTIVA_IPC_TOKEN is set (desktop mode), add
+#    IPCTokenAuth and LoopbackGuard middleware BEFORE CORS so the execution
+#    order is: LoopbackGuard → IPCTokenAuth → CORS → route.
+#    OPTIONS preflight is explicitly exempt inside IPCTokenAuth so CORS works.
+if os.environ.get("QUANTIVA_IPC_TOKEN"):
+    from app.security.local_api import (  # noqa: PLC0415
+        DESKTOP_CORS_ORIGINS,
+        configure_desktop_security,
+    )
+    # Use desktop origins when running under Tauri.
+    _cors_origins = DESKTOP_CORS_ORIGINS
+    configure_desktop_security(app)
+else:
+    _cors_origins = settings.CORS_ORIGINS
+
+# 3. CORS — allow frontend origin; tighten in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 3. Security headers — outermost so responses from every route are hardened.
+# 4. Security headers — outermost so responses from every route are hardened.
 app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Routes ────────────────────────────────────────────────────────────────────

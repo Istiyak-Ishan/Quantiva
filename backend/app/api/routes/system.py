@@ -156,4 +156,30 @@ async def get_system_hardware() -> SystemHardwareResponse:
     )
 
 
+@router.post(
+    "/shutdown",
+    dependencies=[Depends(verify_desktop_token)],
+    summary="Desktop Backend Graceful Shutdown",
+)
+async def shutdown_system() -> dict[str, str]:
+    """Gracefully stop the backend process, flushing SQLite and vector stores."""
+    import asyncio
+    import os
+    import signal
+    import sys
+
+    loop = asyncio.get_running_loop()
+
+    def _trigger_signal() -> None:
+        import time
+        time.sleep(0.3)
+        if sys.platform == "win32":
+            os.kill(os.getpid(), signal.CTRL_C_EVENT)
+        else:
+            os.kill(os.getpid(), signal.SIGINT)
+
+    loop.run_in_executor(None, _trigger_signal)
+    return {"status": "shutting_down"}
+
+
 __all__ = ["router"]

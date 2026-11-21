@@ -1,15 +1,31 @@
 import axios from 'axios';
+import {
+  getBackendConnectionInfo,
+  createDesktopSSE,
+  type DesktopEventSourceLike,
+} from './api-client';
 
 // ─── AXIOS INSTANCE ──────────────────────────────────────────────────────────
-// Single Axios instance with base URL. Auth token is injected by the
-// request interceptor below so every call is automatically authenticated.
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? '/api/v1';
+// Single Axios instance with base URL. In desktop or dev mode, the base URL
+// and X-Quantiva-Token are injected dynamically by the request interceptor.
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30_000,
   withCredentials: true,
+});
+
+// Dynamic Desktop & Dev Token Request Interceptor
+api.interceptors.request.use(async (config) => {
+  const info = await getBackendConnectionInfo();
+  if (!config.baseURL || config.baseURL === '/api/v1' || config.baseURL.endsWith('/api/v1')) {
+    config.baseURL = `${info.baseUrl}/api/v1`;
+  }
+  if (info.ipcToken && !config.headers.get('X-Quantiva-Token')) {
+    config.headers.set('X-Quantiva-Token', info.ipcToken);
+  }
+  return config;
 });
 
 // Browser credentials live only in backend-issued HttpOnly cookies. Serialize
@@ -191,28 +207,27 @@ export const watchDocumentStatus = (
   docId: string,
   onStatus: (data: DocumentStatusResponse) => void,
   onError?: () => void,
-): EventSource => {
-  const url = new URL(`${API_BASE_URL}/documents/${docId}/status`, window.location.origin);
-  const es = new EventSource(url.toString(), { withCredentials: true });
+): EventSource | DesktopEventSourceLike => {
+  const sse = createDesktopSSE(`/documents/${docId}/status`);
 
-  es.onmessage = (e) => {
+  sse.onmessage = (e) => {
     try {
       const data: DocumentStatusResponse = JSON.parse(e.data);
       onStatus(data);
       if (data.status === 'ready' || data.status === 'failed') {
-        es.close();
+        sse.close();
       }
     } catch {
       // ignore malformed events
     }
   };
 
-  es.onerror = () => {
+  sse.onerror = () => {
     onError?.();
-    es.close();
+    sse.close();
   };
 
-  return es;
+  return sse;
 };
 
 // ─── SESSION API ──────────────────────────────────────────────────────────────
@@ -281,11 +296,13 @@ export const getHistory = async (
 export const streamMessage = async (
   sessionId: string,
   query: string,
-): Promise<EventSource> => {
-  await getCurrentUser(); // Refresh if necessary before opening a non-retrying SSE request.
+): Promise<EventSource | DesktopEventSourceLike> => {
+  try {
+    await getCurrentUser(); // Refresh if necessary before opening a non-retrying SSE request.
+  } catch {
+    // In desktop mode without user auth, continue
+  }
 
-  const url = new URL(`${API_BASE_URL}/chat/message/stream`, window.location.origin);
-  url.searchParams.set('session_id', sessionId);
-  url.searchParams.set('query', query);
-  return new EventSource(url.toString(), { withCredentials: true });
+  const queryParams = new URLSearchParams({ session_id: sessionId, query });
+  return createDesktopSSE(`/chat/message/stream?${queryParams.toString()}`);
 };

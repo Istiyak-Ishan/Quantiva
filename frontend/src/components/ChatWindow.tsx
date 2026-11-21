@@ -17,6 +17,7 @@ import { MessageBubble } from './MessageBubble';
 import { useChatStore } from '@/store/useChatStore';
 import { useDocumentStore } from '@/store/useDocumentStore';
 import { streamMessage, StreamEventData } from '@/lib/api';
+import type { DesktopEventSourceLike } from '@/lib/api-client';
 import {
   Send,
   Loader2,
@@ -127,7 +128,7 @@ export function ChatWindow() {
   const [error, setError] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventSourceRef = useRef<EventSource | DesktopEventSourceLike | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Auto-scroll ──────────────────────────────────────────────────────────
@@ -203,7 +204,7 @@ export function ChatWindow() {
           }
         };
 
-        es.onerror = (event) => {
+        es.onerror = (event: Event | MessageEvent) => {
           setIsConnecting(false);
           useChatStore.getState().abortStreaming();
           let message = 'Connection interrupted. Please verify backend status and retry.';

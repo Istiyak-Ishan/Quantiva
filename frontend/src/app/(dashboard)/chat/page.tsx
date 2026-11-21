@@ -1,7 +1,10 @@
 "use client";
 
 /**
- * /chat/[sessionId] — The primary application view.
+ * /chat — The primary desktop and web chat view.
+ *
+ * Uses client-side query parameters (?sessionId=...) to support static export
+ * (output: 'export') for Tauri 2 desktop distribution without dynamic server segments.
  *
  * Layout:
  *   ┌─────────────────────────────────────────────────────────┐
@@ -13,18 +16,20 @@
  *   │  │──────────────────│   │                               │
  *   │  │ Session list     │   │                               │
  *   └─────────────────────────────────────────────────────────┘
- *
- * On mount:
- *   1. Sets the current session in Zustand
- *   2. Fetches message history from the backend
- *   3. Loads existing documents (if any) — future: from API
  */
 
-import React, { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import React, { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useChatStore } from '@/store/useChatStore';
 import { useDocumentStore } from '@/store/useDocumentStore';
-import { getHistory, getSessions, deleteSession, logout, errorMessage } from '@/lib/api';
+import {
+  getHistory,
+  getSessions,
+  deleteSession,
+  logout,
+  errorMessage,
+  createSession,
+} from '@/lib/api';
 import { FileUploader } from '@/components/FileUploader';
 import { ChatWindow } from '@/components/ChatWindow';
 import {
@@ -38,7 +43,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { createSession } from '@/lib/api';
 
 // ─── SESSION LIST ─────────────────────────────────────────────────────────────
 
@@ -61,7 +65,7 @@ function SessionList({ sessions, currentSessionId, onDelete }: SessionListProps)
   const handleNew = async () => {
     try {
       const res = await createSession([]);
-      router.push(`/chat/${res.session_id}`);
+      router.push(`/chat/?sessionId=${res.session_id}`);
     } catch (error) {
       setError(errorMessage(error));
     }
@@ -105,7 +109,7 @@ function SessionList({ sessions, currentSessionId, onDelete }: SessionListProps)
                 ? 'bg-blue-500/15 border border-blue-500/25'
                 : 'hover:bg-neutral-800/60 border border-transparent',
             )}
-            onClick={() => router.push(`/chat/${s.id}`)}
+            onClick={() => router.push(`/chat/?sessionId=${s.id}`)}
             role="button"
             tabIndex={0}
             aria-label={`Switch to ${label}`}
@@ -123,7 +127,10 @@ function SessionList({ sessions, currentSessionId, onDelete }: SessionListProps)
               <p className="text-[10px] text-neutral-600">{date}</p>
             </div>
             <button
-              onClick={(e) => { e.stopPropagation(); onDelete(s.id); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(s.id);
+              }}
               className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-600 hover:text-red-400 transition-all"
               aria-label={`Delete ${label}`}
             >
@@ -151,18 +158,24 @@ function Sidebar({ collapsed, onToggle, sessionId }: SidebarProps) {
 
   useEffect(() => {
     getSessions()
-      .then(setSessions)
+      .then((data) => {
+        setSessions(data);
+        if (!sessionId && data.length > 0) {
+          router.replace(`/chat/?sessionId=${data[0].id}`);
+        }
+      })
       .catch(() => setSessions([]))
       .finally(() => setLoadingSessions(false));
-  }, [sessionId]);
+  }, [sessionId, router]);
 
   const handleDeleteSession = async (id: string) => {
     try {
       await deleteSession(id);
       setSessions((prev) => prev.filter((s) => s.id !== id));
-      // If we deleted the current session, redirect home
-      if (id === sessionId) router.push('/');
-    } catch { /* silently ignore */ }
+      if (id === sessionId) router.push('/chat/');
+    } catch {
+      /* silently ignore */
+    }
   };
 
   if (collapsed) {
@@ -233,14 +246,26 @@ function Sidebar({ collapsed, onToggle, sessionId }: SidebarProps) {
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-neutral-800/60">
-        <button className="text-sm text-neutral-300" onClick={async () => {
-          try {
-            await logout();
-            useChatStore.setState({ messages: [], currentSession: null, isStreaming: false, streamingMessage: '' });
-            useDocumentStore.setState({ documents: [] });
-            router.replace('/login');
-          } catch (error) { window.alert(errorMessage(error)); }
-        }}>Sign out</button>
+        <button
+          className="text-sm text-neutral-300"
+          onClick={async () => {
+            try {
+              await logout();
+              useChatStore.setState({
+                messages: [],
+                currentSession: null,
+                isStreaming: false,
+                streamingMessage: '',
+              });
+              useDocumentStore.setState({ documents: [] });
+              router.replace('/login/');
+            } catch (error) {
+              window.alert(errorMessage(error));
+            }
+          }}
+        >
+          Sign out
+        </button>
         <p className="text-[10px] text-neutral-600 text-center">
           Powered by Gemini · Qdrant · FastAPI
         </p>
@@ -249,26 +274,30 @@ function Sidebar({ collapsed, onToggle, sessionId }: SidebarProps) {
   );
 }
 
-// ─── PAGE ─────────────────────────────────────────────────────────────────────
+// ─── PAGE CONTENT (INSIDE SUSPENSE) ──────────────────────────────────────────
 
-export default function ChatPage() {
-  const params = useParams();
+function ChatPageContent() {
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const sessionId = params.sessionId as string;
+  const sessionId = searchParams.get('sessionId') || searchParams.get('id') || '';
 
   const { setSession, setMessages } = useChatStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  const loading = Boolean(sessionId && loadedSessionId !== sessionId);
 
   // Hydrate documents on mount
   useEffect(() => {
     useDocumentStore.getState().fetchDocuments();
   }, []);
 
-  // Set session in Zustand and load history from Redis
+  // Set session in Zustand and load history
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      return;
+    }
 
     setSession(sessionId);
 
@@ -289,9 +318,19 @@ export default function ChatPage() {
         }));
         setMessages(msgs);
       })
-      .catch((error) => { if (active) { setMessages([]); setError(errorMessage(error)); } })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .catch((error) => {
+        if (active) {
+          setMessages([]);
+          setError(errorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (active) setLoadedSessionId(sessionId);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [sessionId, setSession, setMessages, router]);
 
   return (
@@ -313,7 +352,11 @@ export default function ChatPage() {
 
       {/* ── Main chat area ───────────────────────────────────────────────── */}
       <main className="flex-1 min-w-0 h-full" role="main" aria-label="Chat interface">
-        {error ? <p role="alert" className="p-8 text-red-400">{error}</p> : loading ? (
+        {error ? (
+          <p role="alert" className="p-8 text-red-400">
+            {error}
+          </p>
+        ) : loading ? (
           <div className="h-full flex items-center justify-center">
             <div className="flex items-center gap-3 text-neutral-500">
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -325,5 +368,24 @@ export default function ChatPage() {
         )}
       </main>
     </div>
+  );
+}
+
+// ─── ROOT PAGE WITH SUSPENSE BOUNDARY ────────────────────────────────────────
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-neutral-500">
+          <div className="flex items-center gap-3">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading workspace…</span>
+          </div>
+        </div>
+      }
+    >
+      <ChatPageContent />
+    </Suspense>
   );
 }

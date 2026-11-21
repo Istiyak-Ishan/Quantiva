@@ -36,18 +36,18 @@ async function mockApi(page: Page, options: { signedIn?: boolean; streamError?: 
 
 test('anonymous dashboard redirects to login without rendering private workspace', async ({ page }) => {
   await mockApi(page);
-  await page.goto(`/chat/${sessionId}`);
+  await page.goto(`/chat/?sessionId=${sessionId}`);
   await expect(page.getByRole('heading', { name: 'Quantiva · Sign in' })).toBeVisible();
   await expect(page.getByLabel('Chat messages')).toHaveCount(0);
 });
 
 test('login uses HttpOnly cookies, sends no URL credentials, and renders Markdown tables', async ({ page, context }) => {
   await mockApi(page);
-  await page.goto('/login');
+  await page.goto('/login/');
   await page.getByLabel('Email', { exact: true }).fill('browser@example.com');
   await page.getByLabel('Password', { exact: true }).fill('SecurePass123!');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page).toHaveURL(`/chat/${sessionId}`);
+  await expect(page).toHaveURL(`/chat/?sessionId=${sessionId}`);
   await expect(page.getByText('Quantiva Assistant', { exact: true })).toBeVisible();
   expect((await context.cookies()).find((c) => c.name === 'quantiva_access')?.httpOnly).toBe(true);
   expect(await page.evaluate(() => localStorage.getItem('token'))).toBeNull();
@@ -60,11 +60,11 @@ test('login uses HttpOnly cookies, sends no URL credentials, and renders Markdow
 
 test('registration form creates a real API session path rather than a fallback ID', async ({ page }) => {
   await mockApi(page);
-  await page.goto('/register');
+  await page.goto('/register/');
   await page.getByLabel('Email', { exact: true }).fill('new@example.com');
   await page.getByLabel('Password', { exact: true }).fill('SecurePass123!');
   await page.getByRole('button', { name: 'Create account', exact: true }).click();
-  await expect(page).toHaveURL(`/chat/${sessionId}`);
+  await expect(page).toHaveURL(`/chat/?sessionId=${sessionId}`);
 });
 
 test('session creation failure stays visible and never fabricates a route', async ({ page }) => {
@@ -76,7 +76,7 @@ test('session creation failure stays visible and never fabricates a route', asyn
 
 test('provider stream error is displayed, not finalized as a successful assistant answer', async ({ page }) => {
   await mockApi(page, { signedIn: true, streamError: true });
-  await page.goto(`/chat/${sessionId}`);
+  await page.goto(`/chat/?sessionId=${sessionId}`);
   const input = page.getByRole('textbox', { name: 'Chat message input' });
   await input.fill('hello');
   await input.press('Enter');
@@ -86,8 +86,8 @@ test('provider stream error is displayed, not finalized as a successful assistan
 
 test('logout removes workspace and routes back to login', async ({ page }) => {
   await mockApi(page, { signedIn: true });
-  await page.goto(`/chat/${sessionId}`);
+  await page.goto(`/chat/?sessionId=${sessionId}`);
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click({ timeout: 5000, noWaitAfter: true });
-  await expect(page).toHaveURL('/login');
+  await expect(page).toHaveURL('/login/');
 });

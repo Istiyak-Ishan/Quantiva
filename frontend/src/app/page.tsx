@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import axios from 'axios';
 import { createSession, getCurrentUser, errorMessage } from '@/lib/api';
+import { isTauriDesktop } from '@/lib/api-client';
 
 export default function Home() {
   const router = useRouter();
@@ -12,13 +13,15 @@ export default function Home() {
     let active = true;
     async function open() {
       try {
-        await getCurrentUser();
+        if (!isTauriDesktop()) {
+          await getCurrentUser();
+        }
         if (!active) return;
         const session = await createSession([]);
-        if (active) router.replace(`/chat/${session.session_id}`);
+        if (active) router.replace(`/chat/?sessionId=${session.session_id}`);
       } catch (error) {
         if (!active) return;
-        if (axios.isAxiosError(error) && error.response?.status === 401) router.replace('/login');
+        if (axios.isAxiosError(error) && error.response?.status === 401) router.replace('/login/');
         else setError(errorMessage(error));
       }
     }

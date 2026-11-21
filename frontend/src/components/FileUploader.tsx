@@ -34,6 +34,7 @@ import {
   deleteDocument,
   reindexDocument,
 } from '@/lib/api';
+import type { DesktopEventSourceLike } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 // ─── FILE TYPE ICON ───────────────────────────────────────────────────────────
@@ -165,7 +166,7 @@ function DocItem({ doc, onRemove, onRetry }: DocItemProps) {
 // ─── FILE UPLOADER ────────────────────────────────────────────────────────────
 
 // Track EventSource refs so we can clean up if the component unmounts
-const activeEventSources = new Map<string, EventSource>();
+const activeEventSources = new Map<string, EventSource | DesktopEventSourceLike>();
 
 export function FileUploader() {
   const { documents, fetchDocuments, addDocument, updateStatus, removeDocument, replaceId } =

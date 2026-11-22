@@ -982,6 +982,99 @@ export const streamConversationAsk = (
   };
 };
 
+// ─── EVALUATION & RAG BENCHMARKING TYPES & METHODS ────────────────────────────
+
+export interface BenchmarkQueryItem {
+  question: string;
+  expected_document_names?: string[];
+  expected_page_numbers?: number[];
+  expected_keywords_or_snippets?: string[];
+}
+
+export interface EvaluationScorecardRow {
+  strategy: string;
+  display_name: string;
+  'recall@5'?: number;
+  'precision@5'?: number;
+  mrr?: number;
+  'ndcg@5'?: number;
+  latency_ms?: number;
+  [key: string]: unknown;
+}
+
+export interface EvaluationRunItem {
+  id: string;
+  knowledge_base_id: string;
+  name: string;
+  status: string;
+  strategies_evaluated: string[];
+  strategy_results: {
+    scorecard: EvaluationScorecardRow[];
+    best_strategy?: string | null;
+    strategies?: Record<string, unknown>;
+    k_values?: number[];
+    total_benchmark_queries?: number;
+  };
+  generation_metrics?: {
+    sample_question?: string;
+    answer_excerpt?: string;
+    citation_precision?: number;
+    citation_groundedness?: number;
+    faithfulness_score?: number;
+    lexical_overlap_score?: number;
+    llm_judge_score?: number | null;
+    judge_reasoning?: string | null;
+    ungrounded_claims?: string[];
+    generation_latency_ms?: number;
+    error?: string;
+  };
+  telemetry?: {
+    retrieval_latency_ms?: number;
+    reranking_latency_ms?: number;
+    ttft_ms?: number | null;
+    total_generation_latency_ms?: number;
+    total_pipeline_latency_ms?: number;
+    peak_rss_mb_delta?: number;
+    start_rss_mb?: number;
+    end_rss_mb?: number;
+  };
+  benchmark_dataset_count: number;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export const runEvaluation = async (payload: {
+  knowledge_base_id: string;
+  name?: string;
+  strategies?: string[];
+  benchmark_dataset?: BenchmarkQueryItem[];
+  evaluate_generation?: boolean;
+  k_values?: number[];
+}): Promise<EvaluationRunItem> => {
+  return (await api.post<EvaluationRunItem>('/evaluation/run', payload)).data;
+};
+
+export const listEvaluationRuns = async (
+  knowledge_base_id?: string
+): Promise<EvaluationRunItem[]> => {
+  const params: Record<string, string> = {};
+  if (knowledge_base_id) params.knowledge_base_id = knowledge_base_id;
+  return (await api.get<EvaluationRunItem[]>('/evaluation/runs', { params })).data;
+};
+
+export const getEvaluationRun = async (runId: string): Promise<EvaluationRunItem> => {
+  return (await api.get<EvaluationRunItem>(`/evaluation/runs/${runId}`)).data;
+};
+
+export const getDefaultBenchmarks = async (
+  knowledge_base_id?: string
+): Promise<BenchmarkQueryItem[]> => {
+  const params: Record<string, string> = {};
+  if (knowledge_base_id) params.knowledge_base_id = knowledge_base_id;
+  return (await api.get<BenchmarkQueryItem[]>('/evaluation/benchmarks/default', { params })).data;
+};
+
+
 
 
 

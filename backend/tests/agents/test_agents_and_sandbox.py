@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+import os
 
 import pytest
 
@@ -225,7 +226,8 @@ async def test_sandbox_blocks_dangerous_import_and_external_open(tmp_path: Path)
     sandbox = LocalPythonSandbox(data_dir=tmp_path, timeout_seconds=1)
 
     imported = await sandbox.execute("import subprocess\nprint('bad')")
-    opened = await sandbox.execute("print(open('C:/Windows/win.ini').read())")
+    target_path = "C:/Windows/win.ini" if os.name == "nt" else "/etc/passwd"
+    opened = await sandbox.execute(f"print(open('{target_path}').read())")
 
     assert imported.success is False
     assert "not allowed" in (imported.error or "")

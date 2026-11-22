@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import time
@@ -117,8 +118,9 @@ def test_resolve_relative_path_blocks_traversal(file_store: LocalFileStore, temp
     with pytest.raises(ValueError, match="absolute path"):
         file_store.resolve_relative_path("/etc/passwd")
 
-    with pytest.raises(ValueError, match="absolute path"):
-        file_store.resolve_relative_path("C:\\Windows\\System32\\calc.exe")
+    if os.name == "nt":
+        with pytest.raises(ValueError, match="absolute path"):
+            file_store.resolve_relative_path("C:\\Windows\\System32\\calc.exe")
 
 
 # ── 3. Streaming Upload & Single-Pass SHA-256 Hashing ─────────────────────────

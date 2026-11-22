@@ -9,24 +9,18 @@ from datetime import datetime
 import io
 import json
 import logging
-from pathlib import Path
 from typing import Any
 import zipfile
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from app.api.routes.dependencies import verify_desktop_token
 from app.core.knowledge_bases import (
-    KnowledgeBaseDetails,
     KnowledgeBaseService,
-    KnowledgeBaseSummary,
     get_knowledge_base_service,
 )
-from app.storage.database import SessionLocal
-from app.storage.models import Document, IndexMetadata, KnowledgeBase
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +91,7 @@ async def get_knowledge_base(
     try:
         details = await service.get_knowledge_base_details(kb_id)
         return details.to_dict()
-    except KeyError as exc:
+    except KeyError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Knowledge base not found: {kb_id}")
 
 
@@ -109,7 +103,7 @@ async def update_knowledge_base(
 ) -> dict[str, Any]:
     """Update Knowledge Base metadata and detect embedding configuration divergence."""
     try:
-        kb = await service.update_knowledge_base(
+        await service.update_knowledge_base(
             knowledge_base_id=kb_id,
             name=payload.name,
             description=payload.description,

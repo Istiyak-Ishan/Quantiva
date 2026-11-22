@@ -43,6 +43,7 @@ EXPECTED_TABLES = {
     "retrieval_configurations",
     "processing_jobs",
     "index_metadata",
+    "evaluation_runs",
 }
 
 
@@ -103,7 +104,7 @@ def test_environment_override_wins_over_bootstrap(tmp_path: Path):
 def test_all_twelve_tables_are_created(local_database):
     _data_dir, engine, _factory = local_database
 
-    assert len(Base.metadata.tables) == 12
+    assert len(Base.metadata.tables) == 13
     table_names = set(inspect(engine).get_table_names())
     assert EXPECTED_TABLES.issubset(table_names)
     assert "document_chunks_fts" in table_names

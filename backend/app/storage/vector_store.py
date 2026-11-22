@@ -569,9 +569,16 @@ class LocalVectorStore(VectorStoreRepository):
                     with_vectors=True,
                 )
                 for point in points:
-                    raw_vector = point.vector
+                    raw_vector: Any = point.vector
                     if isinstance(raw_vector, Mapping):
                         raw_vector = next(iter(raw_vector.values()), None)
+                    vec_floats: list[float] = []
+                    if isinstance(raw_vector, list):
+                        for value in raw_vector:
+                            try:
+                                vec_floats.append(float(value))
+                            except (TypeError, ValueError):
+                                pass
                     payload = dict(point.payload or {}) if with_payload else {}
                     records.append(
                         {
@@ -582,7 +589,7 @@ class LocalVectorStore(VectorStoreRepository):
                                 else None
                             ),
                             "payload": payload,
-                            "vector": [float(value) for value in (raw_vector or [])],
+                            "vector": vec_floats,
                         }
                     )
                 if offset is None:

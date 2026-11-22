@@ -26,7 +26,6 @@ from app.evaluation.answer_quality import (
     TelemetryTracker,
     evaluate_answer_faithfulness,
     evaluate_citation_precision_and_groundedness,
-    get_current_rss_mb,
 )
 from app.evaluation.retrieval import (
     BenchmarkQuery,
@@ -256,7 +255,6 @@ async def run_evaluation(payload: EvaluationRunRequest) -> dict[str, Any]:
                     default_mode="direct",
                 )
 
-                gen_start = datetime.now(timezone.utc)
                 rag_resp = await orchestrator.query(
                     query=sample_query.question,
                     knowledge_base_id=kb_id,

@@ -6,15 +6,14 @@ FastAPI routes for System Health and Hardware Inspection (Prompt P4.3).
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from app.api.routes.dependencies import verify_desktop_token
 from app.config import settings
 from app.core.application_context import get_application_context
-from app.core.hardware import HardwareInspector, HardwareProfile, ModelTierRecommendation
+from app.core.hardware import HardwareInspector
 from app.storage.database import sqlite_database_path
 
 router = APIRouter()

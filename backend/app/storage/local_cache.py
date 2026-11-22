@@ -5,7 +5,6 @@ providing zero-infrastructure caching for LLM queries, embeddings, and hot data.
 """
 from __future__ import annotations
 
-import asyncio
 from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib

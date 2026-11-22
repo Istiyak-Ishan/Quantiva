@@ -5,15 +5,13 @@ FastAPI routes for Conversation & RAG Chat management (Prompt P5.3).
 """
 from __future__ import annotations
 
-import asyncio
 from dataclasses import asdict
 from datetime import datetime, timezone
-import json
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -49,7 +47,7 @@ class ConversationCreate(BaseModel):
 class AskRequest(BaseModel):
     query: str = Field(min_length=1)
     stream: bool = False
-    mode: str | None = Field(default=None, description="'direct' or 'agentic'")
+    mode: Literal["direct", "agentic"] | None = Field(default=None, description="'direct' or 'agentic'")
     model_config_id: str | None = None
     filters: dict[str, Any] | None = None
 
@@ -263,7 +261,7 @@ async def ask_question(
         vector_store=vector_store,
         sparse_index=sparse_store,
         index_metadata=prov_index_meta,
-        default_mode=payload.mode or "direct",
+        default_mode="agentic" if payload.mode == "agentic" else "direct",
     )
 
     llm = orchestrator.get_llm_provider()
@@ -278,15 +276,15 @@ async def ask_question(
             collection_name=collection_name,
             filters=payload.filters,
             history=history,
-            mode=payload.mode or "direct",
+            mode="agentic" if payload.mode == "agentic" else "direct",
         )
 
         citations_list = [
-            asdict(c) if hasattr(c, "__dataclass_fields__") else dict(c)
+            asdict(c) if hasattr(c, "__dataclass_fields__") else (c.model_dump() if hasattr(c, "model_dump") else getattr(c, "__dict__", {}))
             for c in response.citations
         ]
         sources_list = [
-            asdict(s) if hasattr(s, "__dataclass_fields__") else dict(s)
+            asdict(s) if hasattr(s, "__dataclass_fields__") else (s.model_dump() if hasattr(s, "model_dump") else getattr(s, "__dict__", {}))
             for s in response.sources
         ]
         usage_dict = asdict(response.usage) if response.usage else {}

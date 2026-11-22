@@ -43,7 +43,6 @@ from app.core.application_context import get_application_context
 from app.providers.interfaces.reranker import RerankDocument
 from app.providers.interfaces.types import (
     ConnectionTestResult,
-    ProviderCapabilities,
     ProviderType,
 )
 from app.providers.llm.ollama import OllamaRuntimeManager

@@ -122,7 +122,6 @@ def configure_desktop_security(app) -> None:  # noqa: ANN001 — FastAPI
     path. So we add LoopbackGuard second (runs first) and IPCTokenAuth first
     (runs after loopback check but before the route).
     """
-    from fastapi.middleware.cors import CORSMiddleware
 
     token = os.environ.get("QUANTIVA_IPC_TOKEN")
 

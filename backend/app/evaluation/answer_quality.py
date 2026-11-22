@@ -370,11 +370,11 @@ async def evaluate_answer_faithfulness(
         )
 
         try:
-            response = await llm_provider.generate_content(
+            response = await llm_provider.generate(
                 messages=[ChatMessage(role=ChatRole.USER, content=judge_prompt)],
                 config=GenerationConfig(temperature=0.0, max_tokens=512),
             )
-            raw_text = response.text.strip()
+            raw_text = response.content.strip()
             # Clean json fences if present
             cleaned = re.sub(r'^```(?:json)?\s*', '', raw_text, flags=re.MULTILINE)
             cleaned = re.sub(r'```$', '', cleaned, flags=re.MULTILINE).strip()

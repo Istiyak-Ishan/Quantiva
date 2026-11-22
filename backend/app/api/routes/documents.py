@@ -8,10 +8,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any
-import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
-from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
 from app.api.routes.dependencies import verify_desktop_token
@@ -21,12 +19,10 @@ from app.core.knowledge_bases import (
     get_knowledge_base_service,
 )
 from app.jobs.manager import (
-    JobStatus,
-    LocalJobManager,
     get_local_job_manager,
 )
 from app.storage.database import SessionLocal
-from app.storage.models import Document, DocumentChunk, KnowledgeBase, ProcessingJob
+from app.storage.models import Document, DocumentChunk, ProcessingJob
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +132,7 @@ async def upload_documents(
                 "message": str(exc),
                 "existing_document_id": exc.existing_document_id,
             })
-        except KeyError as exc:
+        except KeyError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Knowledge base not found: {kb_id}")
         except Exception as exc:
             logger.exception("Error uploading file %s to KB %s: %s", filename, kb_id, exc)
@@ -146,7 +142,6 @@ async def upload_documents(
                 "message": str(exc),
             })
 
-    status_code = status.HTTP_201_CREATED if uploaded else status.HTTP_400_BAD_REQUEST
     return {
         "uploaded": uploaded,
         "failed": failed,
@@ -257,9 +252,6 @@ async def get_document_chunks(
         if doc is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Document not found: {doc_id}")
 
-        total_chunks = session.scalar(
-            select(DocumentChunk).where(DocumentChunk.document_id == doc_id)
-        )
         chunks = session.scalars(
             select(DocumentChunk)
             .where(DocumentChunk.document_id == doc_id)

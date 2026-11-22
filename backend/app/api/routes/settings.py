@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import shutil
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,8 +24,8 @@ from app.storage.backup import (
     restore_backup,
     verify_backup_archive,
 )
-from app.storage.database import SessionLocal, sqlite_database_path
-from app.storage.models import Document, RetrievalConfiguration
+from app.storage.database import SessionLocal
+from app.storage.models import Document
 
 logger = logging.getLogger(__name__)
 

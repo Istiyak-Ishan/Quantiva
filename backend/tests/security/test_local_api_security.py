@@ -195,8 +195,9 @@ def test_desktop_cors_origins_includes_tauri():
 # ── IPCTokenAuthMiddleware Unit Tests ─────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_ipc_middleware_noop_when_no_token():
+async def test_ipc_middleware_noop_when_no_token(monkeypatch):
     """When no token is configured, middleware should let everything through."""
+    monkeypatch.delenv("QUANTIVA_IPC_TOKEN", raising=False)
 
     async def home(request: Request) -> PlainTextResponse:
         return PlainTextResponse("ok")

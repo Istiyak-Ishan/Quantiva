@@ -109,7 +109,7 @@ def _pause_local_job_manager() -> None:
         mgr = get_local_job_manager()
         if mgr and getattr(mgr, "is_started", False):
             try:
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 asyncio.ensure_future(mgr.stop(timeout_seconds=5.0))
             except RuntimeError:
                 asyncio.run(mgr.stop(timeout_seconds=5.0))

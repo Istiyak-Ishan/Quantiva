@@ -761,6 +761,8 @@ export const getProcessingJobs = async (params?: {
   knowledge_base_id?: string;
   document_id?: string;
   status?: string;
+  limit?: number;
+  offset?: number;
 }): Promise<ProcessingJob[]> => {
   return (await api.get<ProcessingJob[]>('/jobs', { params })).data;
 };

@@ -13,7 +13,6 @@ based on VRAM / RAM thresholds defined in the prompt spec.
 from __future__ import annotations
 
 import logging
-import os
 import platform
 import shutil
 import subprocess

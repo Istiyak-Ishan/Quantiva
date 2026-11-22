@@ -366,7 +366,7 @@ export default function KnowledgeBasesPage() {
             </div>
 
             <p className="text-xs text-neutral-300 leading-relaxed">
-              Are you sure you want to permanently delete <strong className="text-white">"{deletingKb.name}"</strong>?
+              Are you sure you want to permanently delete <strong className="text-white">&quot;{deletingKb.name}&quot;</strong>?
               This will purge all indexed vector collections, FTS5 tables, document files, and metadata from your local drive.
             </p>
 

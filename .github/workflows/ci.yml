@@ -1,8 +1,11 @@
 # .github/workflows/ci.yml
-# CI/CD pipeline for Quantiva
+# Continuous Integration pipeline for Quantiva Desktop Application
 #
-# On PR:   lint (ruff) → type check (mypy) → tests (pytest)
-# On main: build Docker image → push to GitHub Container Registry
+# Validates:
+# - Backend: ruff linting, mypy type-checking, pytest unit/e2e/eval suites
+# - Frontend: eslint linting, Next.js static export build (Tauri webview dist)
+# - Tauri Shell: Rust desktop shell compilation check on Windows
+# - Security: Secret scanning with Gitleaks, dependency vulnerability auditing
 
 name: CI / CD
 
@@ -12,38 +15,11 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/backend
-
 jobs:
-  # ── Quality gate (runs on every PR and push) ──────────────────────────────
-  quality:
-    name: Lint · Type-check · Test
+  # ── Backend Quality Gate ──────────────────────────────────────────────────
+  backend:
+    name: Backend · Lint · Type-check · Test
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: quantiva_user
-          POSTGRES_PASSWORD: quantiva_password
-          POSTGRES_DB: quantiva_test_ci
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7-alpine
-        ports: ["6379:6379"]
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
@@ -69,111 +45,85 @@ jobs:
         working-directory: backend
         run: mypy app/ --explicit-package-bases --ignore-missing-imports --no-strict-optional
 
-      - name: Run pytest
+      - name: Run pytest (Desktop SQLite / Local Vector)
         working-directory: backend
         env:
-          DATABASE_URL: postgresql+asyncpg://quantiva_user:quantiva_password@localhost:5432/quantiva_test_ci
-          TEST_POSTGRES_URL: postgresql+asyncpg://quantiva_user:quantiva_password@localhost:5432/quantiva_test_ci
-          REDIS_URL: redis://localhost:6379/0
-          QDRANT_URL: http://localhost:6333
-          S3_ENDPOINT_URL: http://localhost:9090
+          QUANTIVA_DATA_DIR: /tmp/quantiva_ci_data
+          SECRET_KEY: test-only-secret-not-for-production-123456789
           GOOGLE_API_KEY: mock-key-for-tests
-          SECRET_KEY: test-only-secret-not-for-production-123456789
           HF_HUB_OFFLINE: "1"
-        run: pytest tests/ -v --tb=short -x
+        run: pytest tests/ -v --tb=short
 
-      - name: Verify clean migration and ORM drift
-        working-directory: backend
-        env:
-          DATABASE_URL: postgresql+asyncpg://quantiva_user:quantiva_password@localhost:5432/quantiva_test_ci
-          SECRET_KEY: test-only-secret-not-for-production-123456789
-        run: |
-          alembic upgrade head
-          alembic check
-
+  # ── Frontend Quality Gate ─────────────────────────────────────────────────
   frontend:
-    name: Frontend lint · build · browser contracts
+    name: Frontend · Lint · Static Build
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-        working-directory: frontend
-      - run: npm run lint
-        working-directory: frontend
-      - run: npm audit --omit=dev --audit-level=high
-        working-directory: frontend
-      - run: npm run build
-        working-directory: frontend
-      - run: npx playwright install --with-deps chromium
-        working-directory: frontend
-      - run: npm run test:e2e
-        working-directory: frontend
-      - uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          push: false
 
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint with ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build Next.js static export (for Tauri)
+        working-directory: frontend
+        run: npm run build
+
+  # ── Tauri 2 Desktop Shell ─────────────────────────────────────────────────
+  tauri-shell:
+    name: Tauri 2 · Rust Desktop Shell Check
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check Rust Tauri shell
+        working-directory: src-tauri
+        run: cargo check
+
+  # ── Security & Secret Scanning ────────────────────────────────────────────
   security:
-    name: Secret · dependency scanning
+    name: Security · Secret Scanning · Dependency Audit
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
       - name: Scan repository history for secrets
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Audit Python dependencies
         run: |
           python -m pip install --upgrade pip pip-audit
           pip-audit -r backend/requirements.txt
-
-  # ── Docker build + push (runs only on merge to main) ──────────────────────
-  docker:
-    name: Build & Push Docker Image
-    runs-on: ubuntu-latest
-    needs: [quality, frontend, security]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=sha-
-            type=raw,value=latest
-
-      - name: Build and push backend image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

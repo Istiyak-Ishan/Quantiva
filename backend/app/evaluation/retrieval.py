@@ -375,15 +375,6 @@ async def evaluate_retrieval_strategy(
                 else:
                     relevance_indicators.append(0)
 
-            # If no relevant chunks retrieved or known, define ground-truth set
-            # For Recall calculation, if any are relevant, use len(relevant_chunk_ids)
-            # or default ground truth size = 1 if none found
-            ground_truth_relevant = (
-                relevant_chunk_ids
-                if relevant_chunk_ids
-                else {"expected_target"}
-            )
-
             # Map retrieved chunks to chunk_ids
             chunk_ids = [
                 getattr(ch, "chunk_id", str(idx))

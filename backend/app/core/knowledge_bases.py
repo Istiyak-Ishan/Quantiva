@@ -27,25 +27,23 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
-import io
+from dataclasses import asdict, dataclass
+from datetime import datetime
 import logging
 from pathlib import Path
 import threading
 from typing import Any, BinaryIO
 import uuid
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import Settings, settings
 from app.ingestion.types import DocumentChunkPayload
 from app.jobs.indexing import submit_knowledge_base_reindex_job
 from app.jobs.ingestion import submit_document_ingestion_job
-from app.jobs.manager import JobStatus, LocalJobManager, TERMINAL_STATUSES, get_local_job_manager
+from app.jobs.manager import LocalJobManager, TERMINAL_STATUSES, get_local_job_manager
 from app.providers.interfaces.exceptions import EmbeddingDimensionMismatchError
-from app.storage.database import SessionLocal, session_scope
+from app.storage.database import SessionLocal
 from app.storage.file_store import LocalFileStore, StoredFile, sanitize_filename
 from app.storage.interfaces import SearchHit
 from app.storage.models import (
@@ -59,7 +57,6 @@ from app.storage.models import (
 )
 from app.storage.vector_store import (
     LocalVectorStore,
-    VectorStoreManager,
     collection_name_for_knowledge_base,
 )
 
@@ -394,8 +391,6 @@ class KnowledgeBaseService:
         trigger_reindex: bool = False,
     ) -> KnowledgeBase:
         """Update Knowledge Base metadata and detect embedding configuration divergence."""
-        reindex_job_id: str | None = None
-
         with self.session_factory() as session:
             kb = session.get(KnowledgeBase, knowledge_base_id)
             if kb is None:
@@ -456,7 +451,7 @@ class KnowledgeBaseService:
             session.expunge(kb)
 
         if trigger_reindex and embedding_config_id is not None:
-            reindex_job_id = await self.trigger_reindex(
+            await self.trigger_reindex(
                 knowledge_base_id, new_embedding_config_id=embedding_config_id
             )
 
@@ -544,7 +539,7 @@ class KnowledgeBaseService:
         doc_id = str(uuid.uuid4())
 
         # Stream save file and compute SHA-256 in a single pass
-        if hasattr(file_content, "__aiter__"):
+        if isinstance(file_content, AsyncIterator):
             stored_file: StoredFile = await self.file_store.save_original_stream(
                 knowledge_base_id=knowledge_base_id,
                 document_id=doc_id,
@@ -653,7 +648,6 @@ class KnowledgeBaseService:
 
             original_path = doc.original_rel_path
             processed_path = doc.processed_rel_path
-            chunk_count = doc.chunk_count or 0
 
             # Find active jobs to cancel
             active_jobs = session.scalars(

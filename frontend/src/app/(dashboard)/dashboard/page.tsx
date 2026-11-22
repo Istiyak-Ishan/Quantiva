@@ -82,7 +82,7 @@ export default function DashboardPage() {
         getLLMConfigs(),
         getEmbeddingConfigs(),
         getSessions(),
-        getProcessingJobs({ limit: 10 } as any),
+        getProcessingJobs({ limit: 10 }),
       ]);
 
       if (kbsRes.status === 'fulfilled') setKbs(kbsRes.value);

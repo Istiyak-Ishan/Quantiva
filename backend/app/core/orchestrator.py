@@ -33,8 +33,8 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal, cast
 
 from app.agents.citations import (
     CitationValidationResult,
@@ -45,7 +45,6 @@ from app.agents.citations import (
 from app.agents.data_analyst import DataAnalystAgent
 from app.agents.reasoning import (
     AgentRunResult,
-    ReActAgent,
     TokenCallback,
     parse_react_response,
 )
@@ -73,9 +72,8 @@ from app.providers.interfaces.types import (
     TokenUsage,
 )
 from app.providers.registry import IndexMetadata, ProviderRegistry
-from app.retrieval.pipeline import RetrievalPipeline, build_context_blocks
+from app.retrieval.pipeline import RetrievalPipeline
 from app.retrieval.types import (
-    ContextBlock,
     RetrievalMode,
     RetrievalResult,
     RetrievedChunk,
@@ -1009,7 +1007,7 @@ class RAGOrchestrator:
                 break
             if isinstance(item, Exception):
                 raise item
-            yield item
+            yield cast(dict[str, Any], item)
 
         await worker_task
 

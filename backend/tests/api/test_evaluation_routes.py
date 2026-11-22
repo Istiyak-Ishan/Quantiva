@@ -33,9 +33,9 @@ def setup_eval_db(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_evaluation_routes_lifecycle():
+async def test_evaluation_routes_lifecycle(monkeypatch):
     token = "test-eval-token"
-    os.environ["QUANTIVA_IPC_TOKEN"] = token
+    monkeypatch.setenv("QUANTIVA_IPC_TOKEN", token)
 
     # Query or create an embedding config
     with SessionLocal() as session:

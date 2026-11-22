@@ -2,6 +2,7 @@ import axios from 'axios';
 import {
   getBackendConnectionInfo,
   createDesktopSSE,
+  fetchEventSource,
   type DesktopEventSourceLike,
 } from './api-client';
 
@@ -615,5 +616,373 @@ export const updateRetrievalSettings = async (
 ): Promise<RetrievalConfig> => {
   return (await api.put<RetrievalConfig>('/settings/retrieval', payload)).data;
 };
+
+// ─── JOBS & CHUNKS TYPES & METHODS ──────────────────────────────────────────
+
+export interface ProcessingJob {
+  id: string;
+  job_type: string;
+  knowledge_base_id?: string | null;
+  document_id?: string | null;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  stage?: string | null;
+  progress_percent?: number | null;
+  message?: string | null;
+  error_details?: string | null;
+  payload_json?: Record<string, unknown>;
+  started_at?: string | null;
+  completed_at?: string | null;
+  created_at: string;
+}
+
+export interface DocumentChunk {
+  id: string;
+  document_id: string;
+  knowledge_base_id?: string | null;
+  chunk_index: number;
+  page_number?: number | null;
+  section_title?: string | null;
+  sheet_name?: string | null;
+  is_table?: boolean;
+  content: string;
+  char_count: number;
+  metadata_json?: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface DocumentChunksResponse {
+  document_id: string;
+  knowledge_base_id?: string;
+  total_chunks: number;
+  offset: number;
+  limit: number;
+  chunks: DocumentChunk[];
+}
+
+export interface KnowledgeBaseDetailResponse {
+  id: string;
+  name: string;
+  description?: string | null;
+  embedding_config_id?: string | null;
+  embedding_provider?: string | null;
+  embedding_model_name?: string | null;
+  embedding_dimensions?: number | null;
+  retrieval_config_id?: string | null;
+  document_count: number;
+  chunk_count: number;
+  vector_collection_name?: string;
+  is_healthy?: boolean;
+  reindex_required?: boolean;
+  active_jobs?: ProcessingJob[];
+  created_at: string;
+  updated_at: string;
+}
+
+export const getKnowledgeBase = async (kbId: string): Promise<KnowledgeBaseDetailResponse> => {
+  return (await api.get<KnowledgeBaseDetailResponse>(`/knowledge-bases/${kbId}`)).data;
+};
+
+export const deleteKnowledgeBase = async (kbId: string): Promise<void> => {
+  await api.delete(`/knowledge-bases/${kbId}`);
+};
+
+export const reindexKnowledgeBase = async (
+  kbId: string,
+  newEmbeddingConfigId?: string
+): Promise<{ job_id: string; status: string }> => {
+  return (
+    await api.post<{ job_id: string; status: string }>(`/knowledge-bases/${kbId}/reindex`, {
+      new_embedding_config_id: newEmbeddingConfigId || null,
+    })
+  ).data;
+};
+
+export const exportKnowledgeBase = async (kbId: string, filename?: string): Promise<void> => {
+  const response = await api.post(`/knowledge-bases/${kbId}/export`, {}, { responseType: 'blob' });
+  const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/zip' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `quantiva_kb_${kbId}.qkb`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+export const importKnowledgeBase = async (file: File): Promise<KnowledgeBaseDetailResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  return (
+    await api.post<KnowledgeBaseDetailResponse>('/knowledge-bases/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  ).data;
+};
+
+export const getKBDocuments = async (
+  kbId: string,
+  statusFilter?: string
+): Promise<DocumentItem[]> => {
+  const params: Record<string, string> = {};
+  if (statusFilter) params.status = statusFilter;
+  return (await api.get<DocumentItem[]>(`/knowledge-bases/${kbId}/documents`, { params })).data;
+};
+
+export const uploadKBDocuments = async (
+  kbId: string,
+  files: File[]
+): Promise<{ total_uploaded: number; total_failed: number }> => {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append('files', file);
+  }
+  return (
+    await api.post<{ total_uploaded: number; total_failed: number }>(
+      `/knowledge-bases/${kbId}/documents/upload`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  ).data;
+};
+
+export const getDocumentChunks = async (
+  docId: string,
+  limit = 100,
+  offset = 0
+): Promise<DocumentChunksResponse> => {
+  return (
+    await api.get<DocumentChunksResponse>(`/documents/${docId}/chunks`, {
+      params: { limit, offset },
+    })
+  ).data;
+};
+
+export const getProcessingJobs = async (params?: {
+  knowledge_base_id?: string;
+  document_id?: string;
+  status?: string;
+}): Promise<ProcessingJob[]> => {
+  return (await api.get<ProcessingJob[]>('/jobs', { params })).data;
+};
+
+export const cancelJob = async (jobId: string): Promise<void> => {
+  await api.post(`/jobs/${jobId}/cancel`);
+};
+
+export const retryJob = async (jobId: string): Promise<{ new_job_id: string }> => {
+  return (await api.post<{ new_job_id: string }>(`/jobs/${jobId}/retry`)).data;
+};
+
+// ─── CONVERSATIONS, CITATIONS & BACKUP TYPES & METHODS ─────────────────────────
+
+export interface RetrievedChunk {
+  chunk_id: string;
+  content: string;
+  score: number;
+  metadata: {
+    source_file?: string;
+    filename?: string;
+    page_number?: number;
+    sheet_name?: string;
+    is_table?: boolean;
+    [key: string]: unknown;
+  };
+  dense_rank?: number | null;
+  sparse_rank?: number | null;
+  rrf_score?: number | null;
+  rerank_score?: number | null;
+  final_rank?: number | null;
+}
+
+export interface StructuredCitation {
+  marker: string;
+  index: number;
+  chunk_id: string;
+  document_id: string;
+  source_file: string;
+  page_number?: number | null;
+  quote_snippet: string;
+  lexical_overlap?: number;
+  quote_verified?: boolean;
+}
+
+export interface ConversationItem {
+  id: string;
+  knowledge_base_id: string;
+  title: string;
+  model_config_id?: string | null;
+  is_pinned?: boolean;
+  message_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: StructuredCitation[];
+  reasoning_trace?: {
+    reasoning?: string;
+    thoughts?: string[];
+    tool_calls?: Array<{
+      tool: string;
+      input: Record<string, unknown> | string;
+      output?: string;
+    }>;
+    [key: string]: unknown;
+  } | null;
+  retrieved_chunks?: RetrievedChunk[];
+  token_usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
+  latency_ms?: number;
+  provider_used?: string;
+  model_used?: string;
+  created_at: string;
+}
+
+export interface BackupItem {
+  filename: string;
+  path: string;
+  size_bytes: number;
+  created_at: string;
+  schema_version?: number | null;
+  app_version?: string | null;
+}
+
+export const listConversations = async (kb_id?: string): Promise<ConversationItem[]> => {
+  const params: Record<string, string> = {};
+  if (kb_id) params.kb_id = kb_id;
+  return (await api.get<ConversationItem[]>('/conversations', { params })).data;
+};
+
+export const createConversation = async (payload: {
+  knowledge_base_id: string;
+  title?: string;
+  model_config_id?: string | null;
+  is_pinned?: boolean;
+}): Promise<ConversationItem> => {
+  return (await api.post<ConversationItem>('/conversations', payload)).data;
+};
+
+export const getConversationMessages = async (
+  conv_id: string
+): Promise<ConversationMessage[]> => {
+  return (await api.get<ConversationMessage[]>(`/conversations/${conv_id}/messages`)).data;
+};
+
+export const deleteConversation = async (conv_id: string): Promise<void> => {
+  await api.delete(`/conversations/${conv_id}`);
+};
+
+export const listWorkspaceBackups = async (): Promise<BackupItem[]> => {
+  return (await api.get<BackupItem[]>('/settings/backups')).data;
+};
+
+export const createWorkspaceBackup = async (
+  include_models = false
+): Promise<{ status: string; archive_path: string; filename: string; size_bytes: number }> => {
+  return (
+    await api.post<{ status: string; archive_path: string; filename: string; size_bytes: number }>(
+      '/settings/backups/create',
+      { include_models }
+    )
+  ).data;
+};
+
+export const restoreWorkspaceBackup = async (
+  archive_path: string,
+  create_safety_snapshot = true
+): Promise<{ status: string; archive_path: string }> => {
+  return (
+    await api.post<{ status: string; archive_path: string }>('/settings/backups/restore', {
+      archive_path,
+      create_safety_snapshot,
+    })
+  ).data;
+};
+
+export const migrateStorageLocation = async (
+  new_path: string,
+  verify_space = true
+): Promise<{ status: string; new_data_dir: string }> => {
+  return (
+    await api.post<{ status: string; new_data_dir: string }>('/settings/storage/migrate', {
+      new_path,
+      verify_space,
+    })
+  ).data;
+};
+
+export const streamConversationAsk = (
+  convId: string,
+  payload: {
+    query: string;
+    mode?: 'direct' | 'agentic';
+    model_config_id?: string | null;
+    filters?: Record<string, unknown>;
+  },
+  callbacks: {
+    onStatus?: (stage: string) => void;
+    onSources?: (sources: RetrievedChunk[]) => void;
+    onCitations?: (citations: StructuredCitation[]) => void;
+    onTokenDelta?: (text: string) => void;
+    onReasoningDelta?: (text: string) => void;
+    onDone?: (data: { usage?: Record<string, unknown>; latency_ms?: number }) => void;
+    onError?: (err: unknown) => void;
+  }
+): (() => void) => {
+  const controller = new AbortController();
+  void fetchEventSource(`/conversations/${convId}/ask`, {
+    method: 'POST',
+    signal: controller.signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: payload.query,
+      stream: true,
+      mode: payload.mode || 'direct',
+      model_config_id: payload.model_config_id || null,
+      filters: payload.filters || null,
+    }),
+    onMessage: (msg) => {
+      try {
+        const parsed = JSON.parse(msg.data);
+        if (msg.event === 'status') {
+          callbacks.onStatus?.(parsed.stage || parsed.text || '');
+        } else if (msg.event === 'sources') {
+          callbacks.onSources?.(Array.isArray(parsed) ? parsed : []);
+        } else if (msg.event === 'citations') {
+          callbacks.onCitations?.(Array.isArray(parsed) ? parsed : []);
+        } else if (msg.event === 'token_delta') {
+          callbacks.onTokenDelta?.(parsed.text || '');
+        } else if (msg.event === 'reasoning_delta') {
+          callbacks.onReasoningDelta?.(parsed.text || '');
+        } else if (msg.event === 'done') {
+          callbacks.onDone?.(parsed);
+        } else if (msg.event === 'error') {
+          callbacks.onError?.(new Error(parsed.message || 'Stream error'));
+        }
+      } catch {
+        if (msg.event === 'token_delta') {
+          callbacks.onTokenDelta?.(msg.data);
+        }
+      }
+    },
+    onError: (err) => {
+      callbacks.onError?.(err);
+    },
+  });
+
+  return () => {
+    controller.abort();
+  };
+};
+
+
+
 
 

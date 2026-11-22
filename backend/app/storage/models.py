@@ -430,6 +430,25 @@ class IndexMetadata(Base):
     )
 
 
+class EvaluationRun(TimestampMixin, Base):
+    __tablename__ = "evaluation_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_string)
+    knowledge_base_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Benchmark Run")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="COMPLETED", index=True)
+    strategies_evaluated_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    strategy_results_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    generation_metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    telemetry_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    benchmark_dataset_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 __all__ = [
     "ApplicationProfile",
     "Base",
@@ -437,6 +456,7 @@ __all__ = [
     "Document",
     "DocumentChunk",
     "EmbeddingConfiguration",
+    "EvaluationRun",
     "IndexMetadata",
     "KnowledgeBase",
     "Message",

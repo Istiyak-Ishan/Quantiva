@@ -40,10 +40,12 @@ def _machine_guid() -> str:
     if os.name == "nt":
         try:
             import winreg
-            with winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography"
-            ) as key:
-                return str(winreg.QueryValueEx(key, "MachineGuid")[0])
+            hklm = getattr(winreg, "HKEY_LOCAL_MACHINE", None)
+            open_key = getattr(winreg, "OpenKey", None)
+            query_val = getattr(winreg, "QueryValueEx", None)
+            if hklm is not None and open_key and query_val:
+                with open_key(hklm, r"SOFTWARE\Microsoft\Cryptography") as key:
+                    return str(query_val(key, "MachineGuid")[0])
         except Exception:
             pass
     return platform.node()
@@ -57,7 +59,11 @@ def _dpapi_protect(data: bytes) -> bytes:
     class _BLOB(ctypes.Structure):
         _fields_ = [("cbData", wt.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
 
-    crypt = ctypes.windll.crypt32
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        raise OSError("DPAPI is only available on Windows")
+
+    crypt = windll.crypt32
     blob_in = _BLOB(
         len(data),
         ctypes.cast(ctypes.c_char_p(data), ctypes.POINTER(ctypes.c_ubyte)),
@@ -68,7 +74,7 @@ def _dpapi_protect(data: bytes) -> bytes:
     ):
         raise OSError("CryptProtectData failed")
     protected = bytes(blob_out.pbData[: blob_out.cbData])
-    ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+    windll.kernel32.LocalFree(blob_out.pbData)
     return protected
 
 
@@ -80,7 +86,11 @@ def _dpapi_unprotect(data: bytes) -> bytes:
     class _BLOB(ctypes.Structure):
         _fields_ = [("cbData", wt.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
 
-    crypt = ctypes.windll.crypt32
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        raise OSError("DPAPI is only available on Windows")
+
+    crypt = windll.crypt32
     blob_in = _BLOB(
         len(data),
         ctypes.cast(ctypes.c_char_p(data), ctypes.POINTER(ctypes.c_ubyte)),
@@ -91,7 +101,7 @@ def _dpapi_unprotect(data: bytes) -> bytes:
     ):
         raise OSError("CryptUnprotectData failed")
     plain = bytes(blob_out.pbData[: blob_out.cbData])
-    ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+    windll.kernel32.LocalFree(blob_out.pbData)
     return plain
 
 

@@ -1,0 +1,862 @@
+{
+  "benchmark_timestamp": "2026-11-22T14:46:09.448562+00:00",
+  "quantiva_version": "2.0.0-desktop",
+  "environment": {
+    "os_name": "Windows",
+    "os_release": "10",
+    "os_version": "10.0.26200",
+    "os_architecture": "AMD64",
+    "python_version": "3.11.9",
+    "cpu_model": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "cpu_physical_cores": 6,
+    "cpu_logical_cores": 12,
+    "ram_total_gb": 15.46,
+    "ram_available_gb": 4.15,
+    "disk_free_gb": 117.89,
+    "gpus": [
+      {
+        "name": "NVIDIA GeForce RTX 4060",
+        "vram_total_gb": 8.0,
+        "vram_total_mb": 8188
+      }
+    ],
+    "hardware_tier": "balanced",
+    "hardware_tier_description": "Balanced local inference with mid-size quantised models",
+    "tested_embedding_model": "deterministic-mock-384d / multilingual-e5-base (768d)",
+    "tested_reranker_model": "mock-cross-encoder-minilm / ms-marco-MiniLM-L-6-v2",
+    "tested_llm_providers": [
+      "ollama (Local)",
+      "gemini (Cloud API)",
+      "mock-deterministic"
+    ]
+  },
+  "ingestion_indexing_benchmark": [
+    {
+      "format": "PDF (Digital + Table)",
+      "filename": "acme_q3_report.pdf",
+      "file_size_bytes": 4875,
+      "file_size_kb": 4.76,
+      "blocks_extracted": 5,
+      "chunk_count": 5,
+      "extraction_latency_ms": 657.35,
+      "chunking_latency_ms": 0.29,
+      "embedding_latency_ms": 0.04,
+      "total_ingest_latency_ms": 657.69,
+      "peak_rss_mb": 270.46
+    },
+    {
+      "format": "Scanned PDF (OCR Pipeline)",
+      "filename": "scanned_invoice.pdf",
+      "file_size_bytes": 543564,
+      "file_size_kb": 530.82,
+      "blocks_extracted": 0,
+      "chunk_count": 0,
+      "extraction_latency_ms": 63.38,
+      "chunking_latency_ms": 0.01,
+      "embedding_latency_ms": 0.01,
+      "total_ingest_latency_ms": 63.4,
+      "peak_rss_mb": 270.46
+    },
+    {
+      "format": "DOCX (Charter & Tables)",
+      "filename": "corporate_charter.docx",
+      "file_size_bytes": 36914,
+      "file_size_kb": 36.05,
+      "blocks_extracted": 5,
+      "chunk_count": 5,
+      "extraction_latency_ms": 9.73,
+      "chunking_latency_ms": 0.17,
+      "embedding_latency_ms": 0.04,
+      "total_ingest_latency_ms": 9.94,
+      "peak_rss_mb": 272.21
+    },
+    {
+      "format": "XLSX (Multi-Sheet Workbook)",
+      "filename": "financial_workbook.xlsx",
+      "file_size_bytes": 5520,
+      "file_size_kb": 5.39,
+      "blocks_extracted": 2,
+      "chunk_count": 2,
+      "extraction_latency_ms": 274.53,
+      "chunking_latency_ms": 0.09,
+      "embedding_latency_ms": 0.02,
+      "total_ingest_latency_ms": 274.64,
+      "peak_rss_mb": 298.59
+    },
+    {
+      "format": "CSV (Transaction Dataset)",
+      "filename": "transactions.csv",
+      "file_size_bytes": 156,
+      "file_size_kb": 0.15,
+      "blocks_extracted": 1,
+      "chunk_count": 1,
+      "extraction_latency_ms": 2.8,
+      "chunking_latency_ms": 0.06,
+      "embedding_latency_ms": 0.01,
+      "total_ingest_latency_ms": 2.88,
+      "peak_rss_mb": 298.69
+    }
+  ],
+  "retrieval_ablation": {
+    "scorecard": [
+      {
+        "strategy": "dense",
+        "display_name": "Dense Only (Vector)",
+        "recall@5": 0.3333333333333333,
+        "precision@5": 0.24000000000000005,
+        "mrr": 0.4,
+        "ndcg@5": 0.300731757050462,
+        "latency_ms": 0.9652600000663369
+      },
+      {
+        "strategy": "sparse",
+        "display_name": "Sparse Only (BM25 FTS5)",
+        "recall@5": 0.9333333333333332,
+        "precision@5": 0.44000000000000006,
+        "mrr": 1.0,
+        "ndcg@5": 0.9737589844975316,
+        "latency_ms": 0.6470400000580412
+      },
+      {
+        "strategy": "hybrid",
+        "display_name": "Hybrid RRF",
+        "recall@5": 0.8266666666666668,
+        "precision@5": 0.5200000000000001,
+        "mrr": 0.9,
+        "ndcg@5": 0.8272814229583896,
+        "latency_ms": 1.144879999992554
+      },
+      {
+        "strategy": "hybrid_rerank",
+        "display_name": "Hybrid RRF + Cross-Encoder",
+        "recall@5": 0.8,
+        "precision@5": 0.44000000000000006,
+        "mrr": 0.9,
+        "ndcg@5": 0.7724793268253667,
+        "latency_ms": 1.0527999999794702
+      }
+    ],
+    "best_strategy": "sparse",
+    "strategies": {
+      "dense": {
+        "strategy": "dense",
+        "total_queries": 5,
+        "mean_recall_at_k": {
+          "1": 0.05,
+          "3": 0.2333,
+          "5": 0.3333
+        },
+        "mean_precision_at_k": {
+          "1": 0.2,
+          "3": 0.2667,
+          "5": 0.24
+        },
+        "mean_mrr": 0.4,
+        "mean_ndcg_at_k": {
+          "1": 0.2,
+          "3": 0.2592,
+          "5": 0.3007
+        },
+        "mean_latency_ms": 0.97,
+        "total_latency_ms": 5.03,
+        "details": [
+          {
+            "query": "What was ACME Corp total revenue in Q3 2024?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 4,
+            "recall_at_k": {
+              "1": 0.0,
+              "3": 0.25,
+              "5": 0.5
+            },
+            "precision_at_k": {
+              "1": 0.0,
+              "3": 0.3333333333333333,
+              "5": 0.4
+            },
+            "mrr_at_k": {
+              "1": 0.0,
+              "3": 0.5,
+              "5": 0.5
+            },
+            "ndcg_at_k": {
+              "1": 0.0,
+              "3": 0.2960819109658652,
+              "5": 0.4144299250118475
+            },
+            "latency_ms": 1.08330000011847
+          },
+          {
+            "query": "What foreign currency fluctuations or headwind affected EMEA?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 4,
+            "recall_at_k": {
+              "1": 0.25,
+              "3": 0.25,
+              "5": 0.5
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.3333333333333333,
+              "5": 0.4
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 0.46927872602275644,
+              "5": 0.5585075862632192
+            },
+            "latency_ms": 1.0397000000921253
+          },
+          {
+            "query": "Who serves as Chairperson and Independent Auditor on the Audit Committee?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 3,
+            "recall_at_k": {
+              "1": 0.0,
+              "3": 0.6666666666666666,
+              "5": 0.6666666666666666
+            },
+            "precision_at_k": {
+              "1": 0.0,
+              "3": 0.6666666666666666,
+              "5": 0.4
+            },
+            "mrr_at_k": {
+              "1": 0.0,
+              "3": 0.5,
+              "5": 0.5
+            },
+            "ndcg_at_k": {
+              "1": 0.0,
+              "3": 0.5307212739772434,
+              "5": 0.5307212739772434
+            },
+            "latency_ms": 0.8434999999735737
+          },
+          {
+            "query": "What was Subscription Revenue for 2024 Budget in the Income Statement?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 0,
+            "recall_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "precision_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "mrr_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "ndcg_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "latency_ms": 1.1205999999219785
+          },
+          {
+            "query": "What is the transaction amount for engineering TX-901?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "precision_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "mrr_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "ndcg_at_k": {
+              "1": 0.0,
+              "3": 0.0,
+              "5": 0.0
+            },
+            "latency_ms": 0.7392000002255372
+          }
+        ]
+      },
+      "sparse": {
+        "strategy": "sparse",
+        "total_queries": 5,
+        "mean_recall_at_k": {
+          "1": 0.6833,
+          "3": 0.85,
+          "5": 0.9333
+        },
+        "mean_precision_at_k": {
+          "1": 1.0,
+          "3": 0.6,
+          "5": 0.44
+        },
+        "mean_mrr": 1.0,
+        "mean_ndcg_at_k": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 0.9738
+        },
+        "mean_latency_ms": 0.65,
+        "total_latency_ms": 3.37,
+        "details": [
+          {
+            "query": "What was ACME Corp total revenue in Q3 2024?",
+            "retrieved_count": 7,
+            "relevant_retrieved_count": 6,
+            "recall_at_k": {
+              "1": 0.16666666666666666,
+              "3": 0.5,
+              "5": 0.6666666666666666
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.8
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.8687949224876582
+            },
+            "latency_ms": 0.8984000000964443
+          },
+          {
+            "query": "What foreign currency fluctuations or headwind affected EMEA?",
+            "retrieved_count": 1,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.3333333333333333,
+              "5": 0.2
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 0.5744999998569256
+          },
+          {
+            "query": "Who serves as Chairperson and Independent Auditor on the Audit Committee?",
+            "retrieved_count": 4,
+            "relevant_retrieved_count": 4,
+            "recall_at_k": {
+              "1": 0.25,
+              "3": 0.75,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.8
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 0.667400000111229
+          },
+          {
+            "query": "What was Subscription Revenue for 2024 Budget in the Income Statement?",
+            "retrieved_count": 4,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.3333333333333333,
+              "5": 0.2
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 0.5970000001980225
+          },
+          {
+            "query": "What is the transaction amount for engineering TX-901?",
+            "retrieved_count": 1,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.3333333333333333,
+              "5": 0.2
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 0.4979000000275846
+          }
+        ]
+      },
+      "hybrid": {
+        "strategy": "hybrid",
+        "total_queries": 5,
+        "mean_recall_at_k": {
+          "1": 0.3233,
+          "3": 0.72,
+          "5": 0.8267
+        },
+        "mean_precision_at_k": {
+          "1": 0.8,
+          "3": 0.6667,
+          "5": 0.52
+        },
+        "mean_mrr": 0.9,
+        "mean_ndcg_at_k": {
+          "1": 0.8,
+          "3": 0.8793,
+          "5": 0.8273
+        },
+        "mean_latency_ms": 1.14,
+        "total_latency_ms": 5.86,
+        "details": [
+          {
+            "query": "What was ACME Corp total revenue in Q3 2024?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 6,
+            "recall_at_k": {
+              "1": 0.16666666666666666,
+              "3": 0.5,
+              "5": 0.8333333333333334
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 1.3094999999339052
+          },
+          {
+            "query": "What foreign currency fluctuations or headwind affected EMEA?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 4,
+            "recall_at_k": {
+              "1": 0.25,
+              "3": 0.5,
+              "5": 0.5
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.6666666666666666,
+              "5": 0.4
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 0.7653606369886217,
+              "5": 0.6366824387328317
+            },
+            "latency_ms": 1.069299999926443
+          },
+          {
+            "query": "Who serves as Chairperson and Independent Auditor on the Audit Committee?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 5,
+            "recall_at_k": {
+              "1": 0.2,
+              "3": 0.6,
+              "5": 0.8
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.8
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.8687949224876582
+            },
+            "latency_ms": 1.2695000000348955
+          },
+          {
+            "query": "What was Subscription Revenue for 2024 Budget in the Income Statement?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 0.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 0.0,
+              "3": 0.3333333333333333,
+              "5": 0.2
+            },
+            "mrr_at_k": {
+              "1": 0.0,
+              "3": 0.5,
+              "5": 0.5
+            },
+            "ndcg_at_k": {
+              "1": 0.0,
+              "3": 0.6309297535714575,
+              "5": 0.6309297535714575
+            },
+            "latency_ms": 1.0962000001200067
+          },
+          {
+            "query": "What is the transaction amount for engineering TX-901?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.3333333333333333,
+              "5": 0.2
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 0.97989999994752
+          }
+        ]
+      },
+      "hybrid_rerank": {
+        "strategy": "hybrid_rerank",
+        "total_queries": 5,
+        "mean_recall_at_k": {
+          "1": 0.33,
+          "3": 0.75,
+          "5": 0.8
+        },
+        "mean_precision_at_k": {
+          "1": 0.8,
+          "3": 0.6667,
+          "5": 0.44
+        },
+        "mean_mrr": 0.9,
+        "mean_ndcg_at_k": {
+          "1": 0.8,
+          "3": 0.867,
+          "5": 0.7725
+        },
+        "mean_latency_ms": 1.05,
+        "total_latency_ms": 5.39,
+        "details": [
+          {
+            "query": "What was ACME Corp total revenue in Q3 2024?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 5,
+            "recall_at_k": {
+              "1": 0.2,
+              "3": 0.6,
+              "5": 0.6
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.6
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.7227265726449519
+            },
+            "latency_ms": 1.0529999999562278
+          },
+          {
+            "query": "What foreign currency fluctuations or headwind affected EMEA?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 5,
+            "recall_at_k": {
+              "1": 0.2,
+              "3": 0.4,
+              "5": 0.4
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.6666666666666666,
+              "5": 0.4
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 0.7039180890341347,
+              "5": 0.5087403079104241
+            },
+            "latency_ms": 1.125899999806279
+          },
+          {
+            "query": "Who serves as Chairperson and Independent Auditor on the Audit Committee?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 4,
+            "recall_at_k": {
+              "1": 0.25,
+              "3": 0.75,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 0.8
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 1.1273999998593354
+          },
+          {
+            "query": "What was Subscription Revenue for 2024 Budget in the Income Statement?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 0.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 0.0,
+              "3": 0.3333333333333333,
+              "5": 0.2
+            },
+            "mrr_at_k": {
+              "1": 0.0,
+              "3": 0.5,
+              "5": 0.5
+            },
+            "ndcg_at_k": {
+              "1": 0.0,
+              "3": 0.6309297535714575,
+              "5": 0.6309297535714575
+            },
+            "latency_ms": 1.0464000001775275
+          },
+          {
+            "query": "What is the transaction amount for engineering TX-901?",
+            "retrieved_count": 8,
+            "relevant_retrieved_count": 1,
+            "recall_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "precision_at_k": {
+              "1": 1.0,
+              "3": 0.3333333333333333,
+              "5": 0.2
+            },
+            "mrr_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "ndcg_at_k": {
+              "1": 1.0,
+              "3": 1.0,
+              "5": 1.0
+            },
+            "latency_ms": 0.911300000097981
+          }
+        ]
+      }
+    },
+    "k_values": [
+      1,
+      3,
+      5
+    ],
+    "total_benchmark_queries": 5
+  },
+  "answer_quality_and_agent_tools": {
+    "mean_citation_precision": 1.0,
+    "mean_citation_groundedness": 0.5,
+    "mean_lexical_faithfulness": 1.0,
+    "eval_samples_count": 5,
+    "samples": [
+      {
+        "question": "What was ACME Corp total revenue in Q3 2024?",
+        "answer": "According to the financial report [1], total Q3 2024 revenue was $54.2M with a 62.0% operating margin.",
+        "citation_precision": 1.0,
+        "citation_groundedness": 1.0,
+        "total_citations": 1,
+        "valid_citations": 1,
+        "grounded_citations": 1,
+        "lexical_faithfulness_score": 1.0,
+        "ungrounded_claims": []
+      },
+      {
+        "question": "What foreign currency fluctuations or headwind affected EMEA?",
+        "answer": "Operating performance remained strong across all business units in Q3 2024 [1].",
+        "citation_precision": 1.0,
+        "citation_groundedness": 0.0,
+        "total_citations": 1,
+        "valid_citations": 1,
+        "grounded_citations": 0,
+        "lexical_faithfulness_score": 1.0,
+        "ungrounded_claims": []
+      },
+      {
+        "question": "Who serves as Chairperson and Independent Auditor on the Audit Committee?",
+        "answer": "The Audit Committee is chaired by Jane Doe [1] with John Smith serving as Independent Auditor [2].",
+        "citation_precision": 1.0,
+        "citation_groundedness": 0.5,
+        "total_citations": 2,
+        "valid_citations": 2,
+        "grounded_citations": 1,
+        "lexical_faithfulness_score": 1.0,
+        "ungrounded_claims": []
+      },
+      {
+        "question": "What was Subscription Revenue for 2024 Budget in the Income Statement?",
+        "answer": "According to the financial report [1], total Q3 2024 revenue was $54.2M with a 62.0% operating margin.",
+        "citation_precision": 1.0,
+        "citation_groundedness": 0.0,
+        "total_citations": 1,
+        "valid_citations": 1,
+        "grounded_citations": 0,
+        "lexical_faithfulness_score": 1.0,
+        "ungrounded_claims": []
+      },
+      {
+        "question": "What is the transaction amount for engineering TX-901?",
+        "answer": "Transaction TX-901 in Engineering recorded an amount of $12,500.00 [1].",
+        "citation_precision": 1.0,
+        "citation_groundedness": 1.0,
+        "total_citations": 1,
+        "valid_citations": 1,
+        "grounded_citations": 1,
+        "lexical_faithfulness_score": 1.0,
+        "ungrounded_claims": []
+      }
+    ],
+    "agent_sandbox_tool": {
+      "success": true,
+      "output": "Mean: 48.23, Growth: 29.05%",
+      "execution_latency_ms": 81.95,
+      "timed_out": false
+    }
+  },
+  "resilience_and_recovery": [
+    {
+      "test": "Interrupted Ingestion Job Recovery",
+      "passed": true,
+      "details": "Recovered job d9e8e26d-8501-46f1-943d-11c4cfd8c072 from RUNNING to INTERRUPTED; document marked INTERRUPTED_NEEDS_RETRY."
+    },
+    {
+      "test": "Embedding Dimension Switch Protection & Shadow Reindex",
+      "passed": true,
+      "details": "EmbeddingDimensionMismatchError raised on 768d query against 384d index. Shadow index built and promoted; 768d search returned 1 chunks."
+    },
+    {
+      "test": "Restart Persistence across Process Destruction",
+      "passed": true,
+      "details": "Vector store and SQLite cleanly torn down and reopened; retrieved 1 persisted chunks."
+    },
+    {
+      "test": "Offline Air-Gapped Operation (Zero External Network Calls)",
+      "passed": true,
+      "details": "Outbound socket traffic blocked; local hybrid search completed successfully with 8 retrieved candidates."
+    },
+    {
+      "test": "Hot Atomic Backup & Restore from ZIP Archive",
+      "passed": true,
+      "details": "Hot backup archive created (quantiva_backup_20261122_144611.zip); simulated data loss; full restore verified without corruption."
+    }
+  ],
+  "total_benchmark_duration_seconds": 1.7
+}
